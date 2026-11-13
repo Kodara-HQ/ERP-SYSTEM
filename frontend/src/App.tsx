@@ -65,6 +65,10 @@ export function App() {
         <Route path="/finance/payments" element={<PaymentsPage />} />
         <Route path="/finance/budgets" element={<BudgetsPage />} />
         <Route path="/finance/reports" element={<FinanceReportsPage />} />
+        <Route path="/payroll" element={<PayrollPage />} />
+        <Route path="/legal" element={<LegalPage />} />
+        <Route path="/operations" element={<OperationsPage />} />
+        <Route path="/executive" element={<ExecutivePage />} />
         <Route path="/employees" element={<EmployeesPage />} />
         <Route path="/employees/:id" element={<EmployeeDetailPage />} />
         <Route path="/admin/users" element={<UsersPage />} />

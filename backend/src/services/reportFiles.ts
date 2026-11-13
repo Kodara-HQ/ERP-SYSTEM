@@ -1,6 +1,10 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import type { Response } from 'express';
 import ExcelJS from 'exceljs';
 import PDFDocument from 'pdfkit';
+
+const logoPath = path.resolve(__dirname, '../../assets/bajogo-mark.png');
 
 export interface ReportTable {
   title: string;
@@ -85,9 +89,17 @@ export function pdfBuffer(title: string, tables: ReportTable[]): Promise<Buffer>
     doc.on('data', (chunk: Buffer) => chunks.push(chunk));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
-    doc.font('Helvetica-Bold').fontSize(16).fillColor('#2C2B1C').text(title);
+    const left = doc.page.margins.left;
+    const top = doc.y;
+    const hasLogo = fs.existsSync(logoPath);
+    if (hasLogo) doc.image(logoPath, left, top, { width: 44, height: 44 });
+    const textLeft = hasLogo ? left + 56 : left;
+    const textWidth = doc.page.width - doc.page.margins.right - textLeft;
+    doc.font('Helvetica-Bold').fontSize(16).fillColor('#2C2B1C').text(title, textLeft, top + 4, { width: textWidth });
     doc.moveDown(0.2);
-    doc.font('Helvetica').fontSize(9).fillColor('#545233').text('BAJOGO ENTERPRISE');
+    doc.font('Helvetica').fontSize(9).fillColor('#545233').text('BAJOGO ENTERPRISE', textLeft, doc.y, { width: textWidth });
+    doc.x = left;
+    doc.y = Math.max(doc.y, top + 44);
     doc.moveDown();
     for (const table of tables) drawTable(doc, table);
     doc.end();

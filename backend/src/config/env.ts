@@ -40,6 +40,11 @@ if (!/^[A-Za-z0-9_]+$/.test(dbName)) {
 
 const accessTtl = optional('JWT_ACCESS_TTL', '15m');
 
+const smsProvider = (nodeEnv === 'test' ? 'log' : optional('SMS_PROVIDER', 'log').toLowerCase()) as 'log' | 'arkesel' | 'hubtel';
+if (!['log', 'arkesel', 'hubtel'].includes(smsProvider)) {
+  throw new Error('SMS_PROVIDER must be log, arkesel, or hubtel.');
+}
+
 export const env = {
   nodeEnv,
   isProduction: nodeEnv === 'production',
@@ -62,6 +67,13 @@ export const env = {
     accessTtlSeconds: ttlToSeconds(accessTtl),
     refreshTtlDays: Number(optional('JWT_REFRESH_TTL_DAYS', '7')),
   },
+  sms: {
+    provider: smsProvider,
+    senderId: optional('SMS_SENDER_ID', 'BAJOGO'),
+    arkeselApiKey: optional('ARKESEL_API_KEY'),
+    hubtelClientId: optional('HUBTEL_SMS_CLIENT_ID'),
+    hubtelClientSecret: optional('HUBTEL_SMS_CLIENT_SECRET'),
+  },
   bcryptRounds: Number(optional('BCRYPT_ROUNDS', nodeEnv === 'test' ? '4' : '12')),
   seed: {
     adminUsername: optional('SEED_ADMIN_USERNAME', 'sysadmin').toLowerCase(),
@@ -72,6 +84,18 @@ export const env = {
 
 if (env.jwt.accessSecret.length < 32) {
   throw new Error('JWT_ACCESS_SECRET must be at least 32 characters.');
+}
+
+if (env.sms.provider === 'arkesel' && !env.sms.arkeselApiKey) {
+  throw new Error('ARKESEL_API_KEY is required when SMS_PROVIDER is arkesel.');
+}
+
+if (env.sms.provider === 'hubtel' && (!env.sms.hubtelClientId || !env.sms.hubtelClientSecret)) {
+  throw new Error('HUBTEL_SMS_CLIENT_ID and HUBTEL_SMS_CLIENT_SECRET are required when SMS_PROVIDER is hubtel.');
+}
+
+if (!/^[A-Za-z0-9 ]{1,11}$/.test(env.sms.senderId)) {
+  throw new Error('SMS_SENDER_ID must be 1 to 11 letters, numbers, or spaces.');
 }
 
 if (!Number.isFinite(env.port) || env.port <= 0) {

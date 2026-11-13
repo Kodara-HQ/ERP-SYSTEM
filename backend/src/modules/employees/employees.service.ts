@@ -3,6 +3,7 @@ import type { RowDataPacket } from '../../database/rows';
 import { pool } from '../../database/pool';
 import { execute, query, queryOne, scalar, withTransaction, type Db } from '../../database/query';
 import { requestMeta, writeAudit } from '../../services/auditService';
+import { assertSalaryAccess, insertCompensation } from '../payroll/payroll.service';
 import { hasPermission } from '../../services/access';
 import { departmentClause, recordVisibility } from '../../services/visibility';
 import { nextReference, requireCompanyId } from '../../services/companyContext';
@@ -365,8 +366,12 @@ export async function createEmployee(auth: AuthContext, input: AssignmentInput &
   employmentType: string;
   confidentialityLevel: string;
   assignmentStartDate: string;
+  basicSalary?: number | null;
+  allowances?: number | null;
 }, actor: Actor) {
   assertConfidentialWrite(auth, input);
+  const withSalary = input.basicSalary != null;
+  if (withSalary) await assertSalaryAccess(auth);
   return withTransaction(async (connection) => {
     const companyId = await requireCompanyId(connection);
     const placement: AssignmentInput = {
@@ -416,6 +421,16 @@ export async function createEmployee(auth: AuthContext, input: AssignmentInput &
          VALUES (?, ?, 'line', 1, ?, ?)`,
         [employeeId, input.supervisorEmployeeId, input.assignmentStartDate, actor.userId],
       );
+    }
+    if (withSalary) {
+      await insertCompensation(connection, companyId, {
+        employeeId,
+        effectiveFrom: input.assignmentStartDate,
+        basicSalary: input.basicSalary!,
+        allowances: input.allowances ?? 0,
+        deductions: 0,
+        notes: 'Set when the employee was registered.',
+      }, actor);
     }
     await writeAudit(connection, {
       userId: actor.userId,

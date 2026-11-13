@@ -27,11 +27,23 @@ export function translateSql(sql: string, params: unknown[] = []): { text: strin
     /INSERT\s+IGNORE\s+INTO\s+stock_balances\s*(\([^)]*\))\s*VALUES\s*(\([^)]*\))/gi,
     'INSERT INTO stock_balances $1 VALUES $2 ON CONFLICT (warehouse_id, item_id) DO NOTHING',
   );
+  text = text.replace(/\bSUM\((?!\s*CASE\b)([^()]*?(?:=|<>|<|>)[^()]*?)\)/gi, 'SUM(CASE WHEN $1 THEN 1 ELSE 0 END)');
+  text = lockBaseTable(text);
   text = rewriteUpsert(text);
   let index = 0;
   text = text.replace(/'(?:''|[^'])*'|(\?)/g, (match, placeholder: string | undefined) => (placeholder ? `$${++index}` : match));
   if (shouldReturnId(text)) text += ' RETURNING id';
   return { text, values: params };
+}
+
+const clauseWords = new Set(['where', 'join', 'left', 'right', 'inner', 'outer', 'cross', 'on', 'group', 'order', 'limit', 'for']);
+
+function lockBaseTable(sql: string): string {
+  if (!/\bFOR UPDATE\s*$/i.test(sql) || !/\bJOIN\b/i.test(sql)) return sql;
+  const from = sql.match(/\bFROM\s+([a-z0-9_]+)(?:\s+(?:AS\s+)?([a-z0-9_]+))?/i);
+  if (!from?.[1]) return sql;
+  const alias = from[2] && !clauseWords.has(from[2].toLowerCase()) ? from[2] : from[1];
+  return sql.replace(/\bFOR UPDATE\s*$/i, `FOR UPDATE OF ${alias}`);
 }
 
 function rewriteUpdateJoin(sql: string): string {

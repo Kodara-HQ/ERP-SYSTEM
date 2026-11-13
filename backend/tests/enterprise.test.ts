@@ -53,7 +53,7 @@ describe('enterprise workflows', () => {
     const hrPlace = await place(session, session.hrId, 'Hr');
     await place(session, session.accountsId, 'Accounts');
     const other = await request(app).post('/api/v1/employees').set(auth(session.hr)).send({
-      firstName: 'Test', lastName: 'Second', employmentType: 'permanent',
+      firstName: 'Ama', lastName: 'Second', employmentType: 'permanent', phone: '024 412 3456',
       departmentId: hrPlace.departmentId, positionId: hrPlace.positionId, branchId: hrPlace.branchId, assignmentStartDate: '2026-01-15',
     });
     expect(other.status).toBe(201);
@@ -112,10 +112,40 @@ describe('enterprise workflows', () => {
       lineIds: [lines[0].id], cashAccountId: bank.id, paymentDate: '2026-06-16',
     });
     expect(duplicate.status).toBe(409);
+    const paidDetail = await request(app).get(`/api/v1/payroll/${id}`).set(auth(session.accounts));
+    const smsByEmployee = new Map((paidDetail.body.data.lines as Array<{ employeeId: number; sms: { status: string; recipient: string | null } | null }>)
+      .map((line) => [line.employeeId, line.sms]));
+    expect(smsByEmployee.get(other.body.data.id)).toMatchObject({ status: 'sent', recipient: '233244123456' });
+    expect(smsByEmployee.get(hrPlace.employeeId)).toMatchObject({ status: 'skipped', recipient: null });
     expect((await request(app).post(`/api/v1/payroll/${id}/complete`).set(auth(session.accounts)).send()).body.data.status).toBe('completed');
     const report = await request(app).get('/api/v1/finance/reports?financialYear=2026').set(auth(session.accounts));
     expect(report.body.data.profitAndLoss.expense).toBe(2070);
     expect(report.body.data.departmentalExpenditure.reduce((sum: number, row: { amount: number }) => sum + row.amount, 0)).toBe(2070);
+  });
+
+  it('lets HR set the basic salary when registering an employee and keeps salary history', async () => {
+    const session = await tokens();
+    const hrPlace = await place(session, session.hrId, 'Hr');
+    const created = await request(app).post('/api/v1/employees').set(auth(session.hr)).send({
+      firstName: 'Kojo', lastName: 'Salaried', employmentType: 'permanent',
+      departmentId: hrPlace.departmentId, positionId: hrPlace.positionId, branchId: hrPlace.branchId, assignmentStartDate: '2026-03-01',
+      basicSalary: 2500, allowances: 300,
+    });
+    expect(created.status).toBe(201);
+    const employeeId = created.body.data.id as number;
+    const first = await request(app).get(`/api/v1/payroll/compensation/${employeeId}`).set(auth(session.hr));
+    expect(first.body.data.current).toMatchObject({ basicSalary: 2500, allowances: 300, deductions: 0, effectiveFrom: '2026-03-01' });
+
+    const raise = await request(app).post('/api/v1/payroll/compensation').set(auth(session.hr)).send({
+      employeeId, effectiveFrom: '2026-07-01', basicSalary: 2800, allowances: 300, deductions: 0, notes: 'Annual review.',
+    });
+    expect(raise.status).toBe(201);
+    const after = await request(app).get(`/api/v1/payroll/compensation/${employeeId}`).set(auth(session.hr));
+    expect(after.body.data.current.basicSalary).toBe(2800);
+    expect(after.body.data.history).toHaveLength(2);
+
+    const blocked = await request(app).get(`/api/v1/payroll/compensation/${employeeId}`).set(auth(session.it));
+    expect(blocked.status).toBe(403);
   });
 
   it('records legal clearance before the CEO and blocks execution until then', async () => {

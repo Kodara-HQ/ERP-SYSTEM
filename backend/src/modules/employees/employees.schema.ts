@@ -60,6 +60,8 @@ export const employeeCreateSchema = z.object({
   locationId: z.number().int().positive().nullable().optional(),
   supervisorEmployeeId: z.number().int().positive().nullable().optional(),
   assignmentStartDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  basicSalary: z.number().positive().max(1_000_000_000).nullable().optional(),
+  allowances: z.number().min(0).max(1_000_000_000).nullable().optional(),
 });
 
 export const employeeUpdateSchema = z.object({

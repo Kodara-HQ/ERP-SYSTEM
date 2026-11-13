@@ -21,6 +21,7 @@ const tables = [
   'legal_obligations',
   'legal_risks',
   'legal_documents',
+  'sms_messages',
   'salary_payments',
   'payroll_events',
   'payroll_lines',

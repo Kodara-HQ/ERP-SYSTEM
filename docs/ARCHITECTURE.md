@@ -1,4 +1,4 @@
-# BAJOGO ERP architecture
+                                                                                                                                # BAJOGO ERP architecture
 
 Phase 1 decisions. Later modules extend this database and these services. They do not replace them.
 

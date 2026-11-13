@@ -11,6 +11,7 @@ import {
   decidePayroll,
   failSalary,
   forwardPayroll,
+  getEmployeeSalary,
   getPayroll,
   listCompensation,
   listPayroll,
@@ -18,6 +19,7 @@ import {
   payrollReport,
   payrollReportTables,
   releasePayroll,
+  resendSalarySms,
   resubmitPayroll,
   returnPayroll,
   reviewPayroll,
@@ -49,6 +51,10 @@ payrollRouter.get('/compensation', asyncRoute(async (req, res) => {
 
 payrollRouter.post('/compensation', validate({ body: compensationSchema }), asyncRoute(async (req, res) => {
   res.status(201).json({ data: await saveCompensation(req.auth!, req.body, actor(req)) });
+}));
+
+payrollRouter.get('/compensation/:id', validate({ params: idParamSchema }), asyncRoute(async (req, res) => {
+  res.json({ data: await getEmployeeSalary(req.auth!, Number(req.params.id)) });
 }));
 
 payrollRouter.get('/reports.xlsx', asyncRoute(async (req, res) => {
@@ -120,6 +126,10 @@ payrollRouter.post('/:id/payments', validate({ params: idParamSchema, body: sala
 
 payrollRouter.post('/:id/failures', validate({ params: idParamSchema, body: salaryFailSchema }), asyncRoute(async (req, res) => {
   res.status(201).json({ data: await failSalary(req.auth!, Number(req.params.id), req.body, actor(req)) });
+}));
+
+payrollRouter.post('/:id/sms/resend', validate({ params: idParamSchema }), asyncRoute(async (req, res) => {
+  res.json({ data: await resendSalarySms(req.auth!, Number(req.params.id), actor(req)) });
 }));
 
 payrollRouter.post('/:id/complete', validate({ params: idParamSchema }), asyncRoute(async (req, res) => {

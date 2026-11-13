@@ -86,7 +86,7 @@ const viewOrg = ['departments.view', 'positions.view', 'branches.view', 'locatio
 const approvalUse = ['approvals.view', 'approvals.submit', 'approvals.decide'];
 const approvalLead = [...approvalUse, 'approvals.delegate', 'approvals.process'];
 const selfService = ['leave.apply', 'attendance.self'];
-const operational = ['dashboard.view', 'profile.view', 'notifications.view', 'departments.view', 'positions.view', ...approvalUse, ...selfService];
+const operational = ['dashboard.view', 'profile.view', 'notifications.view', 'departments.view', 'positions.view', 'legal.request', ...approvalUse, ...selfService];
 
 export const roleCatalog: RoleSeed[] = [
   {
@@ -111,6 +111,9 @@ export const roleCatalog: RoleSeed[] = [
       'finance.approve_expenditure',
       'payroll.view',
       'legal.view_confidential',
+      'legal.request',
+      'operations.view',
+      'executive.review',
       ...approvalLead,
       'hr.view',
       'hr.view_confidential',
@@ -139,9 +142,6 @@ export const roleCatalog: RoleSeed[] = [
       'organisation.request_change',
       'users.view',
       'payroll.view',
-      ...approvalLead,
-      'hr.view',
-      'hr.manage',
       'payroll.manage',
       'legal.request',
       ...approvalLead,
@@ -172,6 +172,9 @@ export const roleCatalog: RoleSeed[] = [
       'payroll.view',
       'payroll.manage',
       'legal.request',
+      ...selfService,
+    ],
+  },
   {
     code: 'OPERATIONS_MANAGER',
     name: 'Operations Manager',
@@ -179,9 +182,6 @@ export const roleCatalog: RoleSeed[] = [
     isTechnicalAdmin: false,
     canApproveExpenditure: false,
     hasFinalBusinessAuthority: false,
-    permissions: ['dashboard.view', 'profile.view', 'notifications.view', ...viewOrg, 'organisation.request_change', ...approvalLead, ...selfService, 'procurement.view', 'procurement.request', 'procurement.manage', 'inventory.view', 'inventory.manage', 'finance.request'],
-  },
-  {
     permissions: ['dashboard.view', 'profile.view', 'notifications.view', ...viewOrg, 'organisation.request_change', 'legal.request', 'operations.view', 'operations.manage', ...approvalLead, ...selfService, 'procurement.view', 'procurement.request', 'procurement.manage', 'inventory.view', 'inventory.manage', 'finance.request'],
   },
   {
@@ -192,6 +192,9 @@ export const roleCatalog: RoleSeed[] = [
     canApproveExpenditure: false,
     hasFinalBusinessAuthority: false,
     permissions: ['dashboard.view', 'profile.view', 'notifications.view', ...viewOrg, 'organisation.request_change', 'legal.request', 'payroll.view', 'payroll.verify', 'payroll.pay', ...approvalLead, ...selfService, 'procurement.view', 'inventory.view', 'finance.view', 'finance.request', 'finance.manage'],
+  },
+  {
+    code: 'LEGAL_AFFAIRS',
     name: 'Legal Affairs',
     description: 'Access to confidential legal records. No automatic financial authority.',
     isTechnicalAdmin: false,
@@ -218,10 +221,10 @@ export const roleCatalog: RoleSeed[] = [
     isTechnicalAdmin: false,
     canApproveExpenditure: false,
     hasFinalBusinessAuthority: false,
-    permissions: ['dashboard.view', 'profile.view', 'notifications.view', ...viewOrg, 'organisation.request_change', ...approvalLead, ...selfService],
+    permissions: ['dashboard.view', 'profile.view', 'notifications.view', 'legal.request', ...viewOrg, 'organisation.request_change', ...approvalLead, ...selfService],
   },
   {
-    permissions: ['dashboard.view', 'profile.view', 'notifications.view', 'legal.request', ...viewOrg, 'organisation.request_change', ...approvalLead, ...selfService],
+    code: 'SYSTEM_ADMINISTRATOR',
     name: 'System Administrator',
     description: 'Technical administration of structure, accounts, and roles. Cannot approve expenditure or read confidential business records.',
     isTechnicalAdmin: true,
@@ -298,10 +301,10 @@ export const roleCatalog: RoleSeed[] = [
 /** Initial workspace configuration for the seeded departments. Runtime access reads `department_workspaces`. */
 export const departmentWorkspaces: Record<string, string[]> = {
   HR: ['hr', 'people'],
-  OPS: ['procurement', 'inventory', 'people'],
+  OPS: ['procurement', 'inventory', 'people', 'operations'],
   'OPS-PROC': ['procurement', 'people'],
   'OPS-LOAD': ['people'],
-  OPS: ['procurement', 'inventory', 'people', 'operations'],
+  'OPS-HAUL': ['people'],
   'OPS-STORES': ['inventory', 'people'],
   FIN: ['finance', 'people'],
   LEG: ['legal', 'people'],

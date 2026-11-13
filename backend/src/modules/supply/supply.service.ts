@@ -920,7 +920,7 @@ export async function inventorySummary(range: { from: string; to: string }) {
      LEFT JOIN stock_balances b ON b.item_id = i.id
      WHERE i.status = 'active' AND i.reorder_level > 0
      GROUP BY i.id
-     HAVING on_hand <= i.reorder_level
+     HAVING COALESCE(SUM(b.quantity), 0) <= i.reorder_level
      ORDER BY i.sku`,
   );
   const expired = await query<RowDataPacket[]>(

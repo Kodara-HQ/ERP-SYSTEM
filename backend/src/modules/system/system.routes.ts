@@ -133,9 +133,9 @@ dashboardRouter.get('/summary', asyncRoute(async (req, res) => {
     const row = await query<RowDataPacket[]>(
       pool,
       `SELECT
-         SUM(e.employment_status IN ('active', 'probation')) AS active_employees,
-         SUM(e.employment_status = 'probation') AS probation,
-         SUM(e.employment_status = 'exited') AS exited
+         SUM(CASE WHEN e.employment_status IN ('active', 'probation') THEN 1 ELSE 0 END) AS active_employees,
+         SUM(CASE WHEN e.employment_status = 'probation' THEN 1 ELSE 0 END) AS probation,
+         SUM(CASE WHEN e.employment_status = 'exited' THEN 1 ELSE 0 END) AS exited
        FROM employees e
        LEFT JOIN employee_assignments ea ON ea.employee_id = e.id AND ea.is_primary = 1 AND ea.end_date IS NULL
        WHERE e.deleted_at IS NULL AND ${people.sql} ${confidential}`,
@@ -179,7 +179,11 @@ dashboardRouter.get('/summary', asyncRoute(async (req, res) => {
   if (hasPermission(auth, 'users.view') && workspaceAllows(gate, 'administration')) {
     const users = await query<RowDataPacket[]>(
       pool,
-      `SELECT SUM(status = 'active') AS active_users, SUM(status = 'locked') AS locked_users, SUM(status = 'disabled') AS disabled_users FROM users`,
+      `SELECT
+         SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active_users,
+         SUM(CASE WHEN status = 'locked' THEN 1 ELSE 0 END) AS locked_users,
+         SUM(CASE WHEN status = 'disabled' THEN 1 ELSE 0 END) AS disabled_users
+       FROM users`,
     );
     summary.users = {
       active: Number(users[0]?.active_users ?? 0),

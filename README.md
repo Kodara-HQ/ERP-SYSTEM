@@ -1,6 +1,6 @@
 # BAJOGO ERP
 
-BAJOGO ERP is the business system for BAJOGO ENTERPRISE. Phase 1 is the company, organisation, employee, and access-control foundation. Later phases add the approval engine and the operating modules on the same MySQL database.
+BAJOGO ERP is the business system for BAJOGO ENTERPRISE. Phase 1 is the company, organisation, employee, and access-control foundation. Later phases add the approval engine and the operating modules on the same PostgreSQL database.
 
 ## Phase 1
 
@@ -25,15 +25,15 @@ Phase 5 adds the ledger. Journals are double-entry and stay posted: a correction
 
 ## Local setup
 
-Requirements: Node.js 22 or later, npm, and MySQL 8.0 or later. The app does not use MariaDB, PostgreSQL, or Firebase.
+Requirements: Node.js 22 or later, npm, and PostgreSQL 14 or later.
 
-This workstation has MySQL 8.4.7 listening on `127.0.0.1:3306`, started with:
+This workstation runs a dedicated PostgreSQL 18 cluster for BAJOGO ERP from `.pgdata` on `127.0.0.1:5433`. Start it with:
 
 ```powershell
-powershell -File scripts/start-mysql.ps1
+powershell -File scripts/start-postgres.ps1
 ```
 
-XAMPP on this machine provides MariaDB 10.4. Do not point `DB_HOST` at it.
+The application role `bajogo_app` has `CREATEDB`, so `npm run migrate` creates the database when it is missing. The Windows PostgreSQL service on port 5432 belongs to another installation and is left alone.
 
 ```powershell
 copy .env.example .env
@@ -55,7 +55,7 @@ No named employees are seeded. Register real people through HR.
 npm test
 ```
 
-Backend tests use the database `bajogo_erp_test` and require the local MySQL server.
+Backend tests use the database `bajogo_erp_test` and require the local PostgreSQL cluster.
 
 ## Security notes
 

@@ -11,9 +11,43 @@ interface SearchResponse {
   data: Record<string, { id: number; label: string }[]>;
 }
 
+interface Notification {
+  id: number;
+  title: string;
+  body: string;
+  entityType: string | null;
+  entityId: string | null;
+  isRead: boolean;
+  createdAt: string;
+}
+
 interface NotificationResponse {
-  data: { id: number; title: string; body: string; isRead: boolean; createdAt: string }[];
+  data: Notification[];
   meta: { unread: number };
+}
+
+function notificationTarget(note: Notification): string | null {
+  switch (note.entityType) {
+    case 'approval_request':
+      return note.entityId ? `/approvals/${note.entityId}` : '/approvals';
+    case 'approval_delegation':
+      return '/approvals';
+    case 'organisational_change_request':
+      return '/organisation/changes';
+    case 'user':
+      return '/admin/users';
+    default:
+      return null;
+  }
+}
+
+function timeAgo(value: string): string {
+  const minutes = Math.round((Date.now() - new Date(value).getTime()) / 60000);
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  return new Date(value).toLocaleDateString();
 }
 
 export function Shell() {
@@ -37,16 +71,21 @@ export function Shell() {
     queryFn: () => api<NotificationResponse>('/v1/notifications'),
   });
 
-  async function markRead(id: number) {
-    await api(`/v1/notifications/${id}/read`, { method: 'POST' });
-    await notes.refetch();
+  async function openNotification(note: Notification) {
+    setNotesOpen(false);
+    const target = notificationTarget(note);
+    if (target) navigate(target);
+    if (!note.isRead) {
+      await api(`/v1/notifications/${note.id}/read`, { method: 'POST' });
+      await notes.refetch();
+    }
   }
 
   return (
     <div className="min-h-screen bg-canvas text-ink">
       <aside className={`fixed inset-y-0 left-0 z-30 w-72 bg-navy text-cream transition-transform lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex h-16 items-center gap-3 border-b border-white/10 px-5">
-          <div className="grid h-9 w-9 place-items-center rounded-md bg-cream text-sm font-bold text-navy">BE</div>
+          <img src="/brand/bajogo-mark.png" alt="BAJOGO ENTERPRISE" className="h-10 w-10 rounded-full object-cover" />
           <div>
             <div className="text-sm font-semibold tracking-wide text-cream">BAJOGO ERP</div>
             <div className="text-xs text-khaki">Enterprise</div>
@@ -121,15 +160,33 @@ export function Shell() {
                 {(notes.data?.meta.unread ?? 0) > 0 ? <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-brass" /> : null}
               </button>
               {notesOpen ? (
-                <div className="absolute right-0 mt-2 w-80 rounded-md border border-line bg-white p-2 shadow-card">
-                  {(notes.data?.data ?? []).length === 0 ? <div className="px-2 py-3 text-sm text-slate-500">No notifications.</div> : null}
-                  {notes.data?.data.map((note) => (
-                    <button key={note.id} className="block w-full rounded px-2 py-2 text-left hover:bg-canvas" onClick={() => markRead(note.id)} type="button">
-                      <div className="text-sm font-semibold">{note.title}</div>
-                      <div className="text-xs text-slate-600">{note.body}</div>
-                    </button>
-                  ))}
-                </div>
+                <>
+                  <button className="fixed inset-0 z-10 cursor-default" aria-label="Close notifications" onClick={() => setNotesOpen(false)} type="button" />
+                  <div className="fixed inset-x-3 top-[4.5rem] z-20 flex max-h-[70vh] flex-col rounded-lg border border-line bg-white shadow-card sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-96">
+                    <div className="flex items-center justify-between border-b border-line px-4 py-3">
+                      <span className="text-sm font-semibold">Notifications</span>
+                      <span className="text-xs text-slate-500">{notes.data?.meta.unread ?? 0} unread</span>
+                    </div>
+                    <div className="overflow-y-auto p-2">
+                      {(notes.data?.data ?? []).length === 0 ? <div className="px-2 py-3 text-sm text-slate-500">No notifications.</div> : null}
+                      {notes.data?.data.map((note) => (
+                        <button
+                          key={note.id}
+                          className={`flex w-full gap-3 rounded-md px-3 py-2.5 text-left transition-colors hover:bg-canvas focus:bg-canvas focus:outline-none ${note.isRead ? '' : 'bg-cream/40'}`}
+                          onClick={() => openNotification(note)}
+                          type="button"
+                        >
+                          <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${note.isRead ? 'bg-transparent' : 'bg-brass'}`} />
+                          <span className="min-w-0 flex-1">
+                            <span className={`block text-sm ${note.isRead ? 'font-medium text-slate-600' : 'font-semibold text-ink'}`}>{note.title}</span>
+                            <span className="block break-words text-xs text-slate-600">{note.body}</span>
+                            <span className="mt-1 block text-[11px] text-slate-400">{timeAgo(note.createdAt)}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
               ) : null}
             </div>
             <div className="flex items-center gap-3 border-l border-line pl-4">

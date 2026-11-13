@@ -51,6 +51,7 @@ export function EmployeesPage() {
         branchId: Number(values.branchId),
         assignmentStartDate: values.assignmentStartDate,
         hireDate: values.assignmentStartDate,
+        ...(values.basicSalary ? { basicSalary: Number(values.basicSalary), allowances: Number(values.allowances || 0) } : {}),
       }),
     }),
     onSuccess: async () => {
@@ -105,6 +106,13 @@ export function EmployeesPage() {
             <Field label="Start date"><input className={controlClass} type="date" {...form.register('assignmentStartDate', { required: true })} /></Field>
             <Field label="Employment type"><select className={controlClass} {...form.register('employmentType', { required: true })}><option value="permanent">Permanent</option><option value="fixed_term">Fixed term</option><option value="temporary">Temporary</option><option value="casual">Casual</option></select></Field>
             {can('employees.view_confidential') ? <Field label="Confidentiality"><select className={controlClass} {...form.register('confidentialityLevel')}><option value="standard">Standard</option><option value="confidential">Confidential</option><option value="restricted">Restricted</option></select></Field> : null}
+            {can('payroll.manage') ? (
+              <>
+                <Field label="Basic salary (GHS per month)"><input className={controlClass} type="number" min="0.01" step="0.01" inputMode="decimal" {...form.register('basicSalary')} /></Field>
+                <Field label="Allowances (GHS per month)"><input className={controlClass} type="number" min="0" step="0.01" inputMode="decimal" {...form.register('allowances')} /></Field>
+                <p className="sm:col-span-2 -mt-1 text-xs text-slate-500">Optional. You can also set or change the salary later from the employee's page.</p>
+              </>
+            ) : null}
             <div className="sm:col-span-2 flex justify-end"><Button type="submit" disabled={create.isPending}>Save employee</Button></div>
           </form>
         </Modal>
@@ -206,6 +214,7 @@ export function EmployeeDetailPage() {
               </li>
             ))}
           </ul>
+          {can('payroll.manage') ? <SalarySection employeeId={record.id} /> : null}
           {can('employees.edit') ? (
             <form className="mt-6 grid max-w-3xl gap-3 rounded-lg border border-line bg-white p-4 sm:grid-cols-2" onSubmit={form.handleSubmit((values) => transfer.mutate(values))}>
               <h2 className="sm:col-span-2 text-lg font-semibold">Transfer</h2>
@@ -222,6 +231,119 @@ export function EmployeeDetailPage() {
         </>
       ) : null}
     </section>
+  );
+}
+
+interface SalaryRecord {
+  id: number;
+  effectiveFrom: string;
+  basicSalary: number;
+  allowances: number;
+  deductions: number;
+  notes: string | null;
+  isCurrent: boolean;
+  recordedBy: string;
+}
+
+const cedis = (value: number) => `GHS ${value.toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+function SalarySection({ employeeId }: { employeeId: number }) {
+  const client = useQueryClient();
+  const [error, setError] = useState('');
+  const [editing, setEditing] = useState(false);
+  const salary = useQuery({
+    queryKey: ['employee-salary', employeeId],
+    queryFn: () => api<{ data: { current: SalaryRecord | null; history: SalaryRecord[] } }>(`/v1/payroll/compensation/${employeeId}`),
+  });
+  const form = useForm<Record<string, string>>();
+  const save = useMutation({
+    mutationFn: (values: Record<string, string>) => api('/v1/payroll/compensation', {
+      method: 'POST',
+      body: JSON.stringify({
+        employeeId,
+        effectiveFrom: values.effectiveFrom,
+        basicSalary: Number(values.basicSalary),
+        allowances: Number(values.allowances || 0),
+        deductions: Number(values.deductions || 0),
+        ...(values.notes ? { notes: values.notes } : {}),
+      }),
+    }),
+    onSuccess: async () => {
+      setEditing(false);
+      setError('');
+      await client.invalidateQueries({ queryKey: ['employee-salary', employeeId] });
+    },
+    onError: (reason) => setError(reason instanceof ApiError ? reason.message : 'The salary could not be saved.'),
+  });
+  if (salary.isError) return null;
+  const current = salary.data?.data.current ?? null;
+  const history = salary.data?.data.history ?? [];
+
+  function startEditing() {
+    form.reset({
+      effectiveFrom: new Date().toISOString().slice(0, 10),
+      basicSalary: current ? String(current.basicSalary) : '',
+      allowances: current ? String(current.allowances) : '0',
+      deductions: current ? String(current.deductions) : '0',
+      notes: '',
+    });
+    setError('');
+    setEditing(true);
+  }
+
+  return (
+    <div className="mt-6">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold">Salary</h2>
+        {!editing ? <Button type="button" variant="secondary" onClick={startEditing}>{current ? 'Change salary' : 'Set salary'}</Button> : null}
+      </div>
+      {current ? (
+        <div className="grid gap-3 sm:grid-cols-4">
+          <Info label="Basic salary" value={cedis(current.basicSalary)} />
+          <Info label="Allowances" value={cedis(current.allowances)} />
+          <Info label="Other deductions" value={cedis(current.deductions)} />
+          <Info label="Effective from" value={current.effectiveFrom} />
+        </div>
+      ) : salary.isLoading ? null : (
+        <p className="rounded-lg border border-dashed border-line bg-white px-4 py-3 text-sm text-slate-500">No salary recorded. This employee will not appear on payroll until a basic salary is set.</p>
+      )}
+      {editing ? (
+        <form className="mt-3 grid max-w-3xl gap-3 rounded-lg border border-line bg-white p-4 sm:grid-cols-2" onSubmit={form.handleSubmit((values) => save.mutate(values))}>
+          {error ? <div className="sm:col-span-2"><ErrorText>{error}</ErrorText></div> : null}
+          <Field label="Basic salary (GHS per month)"><input className={controlClass} type="number" min="0.01" step="0.01" inputMode="decimal" {...form.register('basicSalary', { required: true })} /></Field>
+          <Field label="Allowances (GHS per month)"><input className={controlClass} type="number" min="0" step="0.01" inputMode="decimal" {...form.register('allowances')} /></Field>
+          <Field label="Other deductions (GHS per month)"><input className={controlClass} type="number" min="0" step="0.01" inputMode="decimal" {...form.register('deductions')} /></Field>
+          <Field label="Effective from"><input className={controlClass} type="date" {...form.register('effectiveFrom', { required: true })} /></Field>
+          <div className="sm:col-span-2"><Field label="Reason for change (optional)"><input className={controlClass} {...form.register('notes')} /></Field></div>
+          <p className="sm:col-span-2 text-xs text-slate-500">The previous salary is kept in the history below. It is not overwritten.</p>
+          <div className="sm:col-span-2 flex gap-2">
+            <Button type="submit" disabled={save.isPending}>Save salary</Button>
+            <Button type="button" variant="secondary" onClick={() => setEditing(false)}>Cancel</Button>
+          </div>
+        </form>
+      ) : null}
+      {history.length > 1 ? (
+        <div className="mt-3 overflow-x-auto rounded-lg border border-line bg-white">
+          <table className="min-w-full text-left text-sm">
+            <thead className="bg-canvas text-xs uppercase tracking-wide text-slate-500">
+              <tr>{['Effective from', 'Basic', 'Allowances', 'Deductions', 'Recorded by', 'Note'].map((header) => <th key={header} className="px-4 py-3">{header}</th>)}</tr>
+            </thead>
+            <tbody>
+              {history.map((row) => (
+                <tr key={row.id} className="border-t border-line">
+                  <td className="px-4 py-3">{row.effectiveFrom}{row.isCurrent ? ' · current' : ''}</td>
+                  <td className="px-4 py-3">{cedis(row.basicSalary)}</td>
+                  <td className="px-4 py-3">{cedis(row.allowances)}</td>
+                  <td className="px-4 py-3">{cedis(row.deductions)}</td>
+                  <td className="px-4 py-3">{row.recordedBy}</td>
+                  <td className="px-4 py-3">{row.notes ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

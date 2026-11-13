@@ -20,8 +20,21 @@ interface Run {
   approvalRequestId: number | null;
 }
 
+interface SalarySms {
+  status: 'queued' | 'sent' | 'failed' | 'skipped';
+  recipient: string | null;
+  error: string | null;
+}
+
+const smsLabels: Record<SalarySms['status'], { text: string; className: string }> = {
+  queued: { text: 'SMS sending', className: 'text-slate-500' },
+  sent: { text: 'SMS sent', className: 'text-pine' },
+  failed: { text: 'SMS failed', className: 'text-[#8d2f2f]' },
+  skipped: { text: 'No SMS', className: 'text-slate-500' },
+};
+
 interface Detail extends Run {
-  lines: Array<{ id: number; employeeName: string; employeeNumber: string; department: string | null; basicSalary: number; allowances: number; deductions: number; netPay: number }>;
+  lines: Array<{ id: number; employeeName: string; employeeNumber: string; department: string | null; basicSalary: number; allowances: number; deductions: number; netPay: number; sms: SalarySms | null }>;
   departments: Array<{ department: string; net: number }>;
   events: Array<{ id: number; action: string; toStatus: string; comment: string | null; actor: string }>;
   payments: Array<{ id: number; referenceNumber: string; lineId: number; status: string; amount: number; failureReason: string | null }>;
@@ -111,6 +124,13 @@ export function PayrollPage() {
             <article key={line.id} className="rounded-lg border border-line bg-white px-4 py-3 text-sm">
               {line.employeeNumber} · {line.employeeName} · {line.department ?? 'No department'} · basic {line.basicSalary.toFixed(2)} · allowances {line.allowances.toFixed(2)} · deductions {line.deductions.toFixed(2)} · net {line.netPay.toFixed(2)}
               {row.payments.filter((payment) => payment.lineId === line.id).map((payment) => <div key={payment.id}>{payment.referenceNumber} · {payment.status}{payment.failureReason ? ` · ${payment.failureReason}` : ''}</div>)}
+              {line.sms ? (
+                <div className={`mt-1 text-xs ${smsLabels[line.sms.status].className}`}>
+                  {smsLabels[line.sms.status].text}
+                  {line.sms.recipient ? ` to +${line.sms.recipient}` : ''}
+                  {line.sms.error ? ` · ${line.sms.error}` : ''}
+                </div>
+              ) : null}
             </article>
           ))}
           <div className="flex flex-wrap gap-2">
@@ -128,6 +148,9 @@ export function PayrollPage() {
             ) : null}
             {can('payroll.pay') && row.status === 'approved' ? <Button type="button" onClick={() => act.mutate(() => api(`/v1/payroll/${row.id}/release`, { method: 'POST' }))}>Release for payment</Button> : null}
             {can('payroll.pay') && row.status === 'paid' ? <Button type="button" onClick={() => act.mutate(() => api(`/v1/payroll/${row.id}/complete`, { method: 'POST' }))}>Mark completed</Button> : null}
+            {can('payroll.pay') && row.lines.some((line) => line.sms?.status === 'failed') ? (
+              <Button type="button" variant="secondary" onClick={() => act.mutate(() => api(`/v1/payroll/${row.id}/sms/resend`, { method: 'POST' }))}>Resend failed SMS</Button>
+            ) : null}
           </div>
           {can('payroll.verify') || can('finance.approve_expenditure') ? (
             <Field label="Comment"><input className={controlClass} value={comment} onChange={(event) => setComment(event.target.value)} /></Field>

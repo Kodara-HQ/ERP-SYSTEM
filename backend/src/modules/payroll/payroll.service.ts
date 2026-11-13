@@ -9,6 +9,8 @@ import { workspaceAllows, workspaceGate } from '../../services/workspaces';
 import { createRequest, decideRequest, resubmitRequest } from '../approvals/approval.service';
 import { onApprovalChange, type ApprovalChange } from '../approvals/approval.hooks';
 import { postJournal } from '../finance/finance.service';
+import { env } from '../../config/env';
+import { dispatchSms, dispatchSmsInBackground, formatCedis, queueSms, resetForRetry } from '../../services/sms';
 import type { AuthContext } from '../../types/auth';
 import { HttpError, notFound } from '../../utils/httpError';
 
@@ -142,14 +144,37 @@ export async function listCompensation(auth: AuthContext) {
   }));
 }
 
-export async function saveCompensation(auth: AuthContext, input: {
+type CompensationInput = {
   employeeId: number;
   effectiveFrom: string;
   basicSalary: number;
   allowances: number;
   deductions: number;
   notes?: string;
-}, actor: Actor) {
+};
+
+export async function assertSalaryAccess(auth: AuthContext) {
+  await assertPrepare(auth);
+}
+
+export async function insertCompensation(connection: Db, companyId: number, input: CompensationInput, actor: Actor) {
+  netOf(input.basicSalary, input.allowances, input.deductions);
+  await execute(connection, `UPDATE employee_compensation SET status = 'inactive' WHERE employee_id = ? AND status = 'active'`, [input.employeeId]);
+  const created = await execute(
+    connection,
+    `INSERT INTO employee_compensation (company_id, employee_id, effective_from, basic_salary, allowances, deductions, notes, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [companyId, input.employeeId, input.effectiveFrom, input.basicSalary, input.allowances, input.deductions, input.notes ?? null, actor.userId],
+  );
+  await writeAudit(connection, {
+    userId: actor.userId, action: 'payroll.compensation', module: 'payroll', entityType: 'employee_compensation', entityId: created.insertId,
+    newValue: { employeeId: input.employeeId, basicSalary: input.basicSalary, allowances: input.allowances, deductions: input.deductions },
+    ipAddress: actor.ipAddress, userAgent: actor.userAgent,
+  });
+  return { id: created.insertId };
+}
+
+export async function saveCompensation(auth: AuthContext, input: CompensationInput, actor: Actor) {
   await assertPrepare(auth);
   netOf(input.basicSalary, input.allowances, input.deductions);
   return withTransaction(async (connection) => {
@@ -160,20 +185,32 @@ export async function saveCompensation(auth: AuthContext, input: {
       [input.employeeId, companyId],
     );
     if (!employee) throw notFound('Employee');
-    await execute(connection, `UPDATE employee_compensation SET status = 'inactive' WHERE employee_id = ? AND status = 'active'`, [input.employeeId]);
-    const created = await execute(
-      connection,
-      `INSERT INTO employee_compensation (company_id, employee_id, effective_from, basic_salary, allowances, deductions, notes, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [companyId, input.employeeId, input.effectiveFrom, input.basicSalary, input.allowances, input.deductions, input.notes ?? null, auth.userId],
-    );
-    await writeAudit(connection, {
-      userId: actor.userId, action: 'payroll.compensation', module: 'payroll', entityType: 'employee_compensation', entityId: created.insertId,
-      newValue: { employeeId: input.employeeId, basicSalary: input.basicSalary, allowances: input.allowances, deductions: input.deductions },
-      ipAddress: actor.ipAddress, userAgent: actor.userAgent,
-    });
-    return { id: created.insertId };
+    return insertCompensation(connection, companyId, input, actor);
   });
+}
+
+export async function getEmployeeSalary(auth: AuthContext, employeeId: number) {
+  await assertPrepare(auth);
+  const rows = await query<RowDataPacket[]>(
+    pool,
+    `SELECT c.id, c.effective_from, c.basic_salary, c.allowances, c.deductions, c.notes, c.status, c.created_at, u.username
+     FROM employee_compensation c JOIN users u ON u.id = c.created_by
+     WHERE c.employee_id = ?
+     ORDER BY c.id DESC`,
+    [employeeId],
+  );
+  const history = rows.map((row) => ({
+    id: Number(row.id),
+    effectiveFrom: String(row.effective_from).slice(0, 10),
+    basicSalary: Number(row.basic_salary),
+    allowances: Number(row.allowances),
+    deductions: Number(row.deductions),
+    notes: row.notes == null ? null : String(row.notes),
+    isCurrent: String(row.status) === 'active',
+    recordedBy: String(row.username),
+    recordedAt: row.created_at,
+  }));
+  return { current: history.find((row) => row.isCurrent) ?? null, history };
 }
 
 export async function listPayroll(auth: AuthContext) {
@@ -205,6 +242,20 @@ export async function getPayroll(auth: AuthContext, id: number) {
     `SELECT * FROM salary_payments WHERE payroll_run_id = ? ORDER BY id`,
     [id],
   );
+  const smsRows = await query<RowDataPacket[]>(
+    pool,
+    `SELECT s.payroll_line_id, s.status, s.recipient, s.last_error, s.sent_at
+     FROM sms_messages s JOIN payroll_lines l ON l.id = s.payroll_line_id
+     WHERE l.payroll_run_id = ? AND s.purpose = 'salary_paid'
+     ORDER BY s.id`,
+    [id],
+  );
+  const smsByLine = new Map(smsRows.map((row) => [Number(row.payroll_line_id), {
+    status: String(row.status),
+    recipient: row.recipient == null ? null : String(row.recipient),
+    error: row.last_error == null ? null : String(row.last_error),
+    sentAt: row.sent_at ?? null,
+  }]));
   const departments = new Map<string, number>();
   for (const line of lines) {
     const name = line.department_name == null ? 'Unassigned' : String(line.department_name);
@@ -222,6 +273,7 @@ export async function getPayroll(auth: AuthContext, id: number) {
       allowances: Number(line.allowances),
       deductions: Number(line.deductions),
       netPay: Number(line.net_pay),
+      sms: smsByLine.get(Number(line.id)) ?? null,
     })),
     departments: [...departments].map(([department, net]) => ({ department, net: dollars(net) })),
     events: events.map((event) => ({
@@ -437,7 +489,7 @@ async function refreshPaymentStatus(db: Db, runId: number, userId: number) {
 
 export async function paySalaries(auth: AuthContext, id: number, input: { lineIds: number[]; cashAccountId: number; paymentDate: string }, actor: Actor) {
   await assertPay(auth);
-  return withTransaction(async (connection) => {
+  const result = await withTransaction(async (connection) => {
     const companyId = await requireCompanyId(connection);
     const run = await queryOne<RowDataPacket>(connection, 'SELECT * FROM payroll_runs WHERE id = ? FOR UPDATE', [id]);
     if (!run) throw notFound('Payroll');
@@ -485,11 +537,20 @@ export async function paySalaries(auth: AuthContext, id: number, input: { lineId
         { accountId: Number(cash.ledger_account_id), debit: 0, credit: dollars(total), memo: `Salary payment ${run.reference_number}` },
       ],
     }, actor);
+    const employees = await query<RowDataPacket[]>(
+      connection,
+      `SELECT id, first_name, phone FROM employees WHERE id IN (${lines.map(() => '?').join(', ')})`,
+      lines.map((line) => line.employee_id),
+    );
+    const employeeById = new Map(employees.map((row) => [Number(row.id), row]));
+    const company = await queryOne<RowDataPacket>(connection, 'SELECT COALESCE(trading_name, legal_name) AS name FROM companies WHERE id = ?', [companyId]);
+    const period = periodLabel(Number(run.period_year), Number(run.period_month));
     const references: string[] = [];
+    const smsIds: number[] = [];
     for (const line of lines) {
       const reference = await nextReference(connection, 'salary_payment', 'salary_payment_prefix');
       references.push(reference);
-      await execute(
+      const payment = await execute(
         connection,
         `INSERT INTO salary_payments (
            company_id, reference_number, payroll_run_id, payroll_line_id, employee_id, period_year, period_month,
@@ -497,6 +558,17 @@ export async function paySalaries(auth: AuthContext, id: number, input: { lineId
          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?, ?)`,
         [companyId, reference, id, line.id, line.employee_id, run.period_year, run.period_month, line.net_pay, input.paymentDate, journal.id, auth.userId],
       );
+      const employee = employeeById.get(Number(line.employee_id));
+      smsIds.push(await queueSms(connection, {
+        companyId,
+        employeeId: Number(line.employee_id),
+        purpose: 'salary_paid',
+        sourceType: 'salary_payment',
+        sourceId: payment.insertId,
+        payrollLineId: Number(line.id),
+        phone: employee?.phone == null ? null : String(employee.phone),
+        message: salaryPaidMessage(String(employee?.first_name ?? 'colleague'), period, Number(line.net_pay), reference, String(company?.name ?? 'BAJOGO ENTERPRISE')),
+      }));
     }
     await refreshPaymentStatus(connection, id, auth.userId);
     await writeAudit(connection, {
@@ -504,8 +576,39 @@ export async function paySalaries(auth: AuthContext, id: number, input: { lineId
       newValue: { journal: journal.referenceNumber, payments: references, amount: dollars(total) },
       ipAddress: actor.ipAddress, userAgent: actor.userAgent,
     });
-    return { journalReference: journal.referenceNumber, payments: references };
+    return { journalReference: journal.referenceNumber, payments: references, smsIds };
   });
+  if (env.isTest) await dispatchSms(result.smsIds);
+  else dispatchSmsInBackground(result.smsIds);
+  return { journalReference: result.journalReference, payments: result.payments, smsQueued: result.smsIds.length };
+}
+
+const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+function periodLabel(year: number, month: number) {
+  return `${monthNames[month - 1] ?? month} ${year}`;
+}
+
+export function salaryPaidMessage(firstName: string, period: string, netPay: number, reference: string, companyName: string) {
+  return `Dear ${firstName}, your ${period} salary of ${formatCedis(netPay)} has been paid. Ref: ${reference}. ${companyName}`;
+}
+
+export async function resendSalarySms(auth: AuthContext, id: number, actor: Actor) {
+  await assertPay(auth);
+  await loadRun(pool, id);
+  const failed = await query<RowDataPacket[]>(
+    pool,
+    `SELECT s.id FROM sms_messages s JOIN payroll_lines l ON l.id = s.payroll_line_id
+     WHERE l.payroll_run_id = ? AND s.purpose = 'salary_paid' AND s.status = 'failed'`,
+    [id],
+  );
+  const retry = await resetForRetry(failed.map((row) => Number(row.id)));
+  await dispatchSms(retry);
+  await writeAudit(pool, {
+    userId: actor.userId, action: 'payroll.sms_resend', module: 'payroll', entityType: 'payroll_run', entityId: id,
+    newValue: { messages: retry.length }, ipAddress: actor.ipAddress, userAgent: actor.userAgent,
+  });
+  return getPayroll(auth, id);
 }
 
 export async function failSalary(auth: AuthContext, id: number, input: { lineId: number; reason: string }, actor: Actor) {

@@ -31,6 +31,37 @@ const userFrom = `
   LEFT JOIN employees e ON e.id = u.employee_id
 `;
 
+type UserSummary = ReturnType<typeof mapUser>;
+
+async function attachRoles(db: Db, users: UserSummary[]) {
+  if (users.length === 0) {
+    return [];
+  }
+  const ids = users.map((user) => user.id);
+  const rows = await query<RowDataPacket[]>(
+    db,
+    `SELECT ur.user_id, ur.scope_type, r.code, r.name, d.name AS department_name, b.name AS branch_name
+     FROM user_roles ur
+     JOIN roles r ON r.id = ur.role_id
+     LEFT JOIN departments d ON ur.scope_type = 'department' AND d.id = ur.scope_id
+     LEFT JOIN branches b ON ur.scope_type = 'branch' AND b.id = ur.scope_id
+     WHERE ur.user_id IN (${ids.map(() => '?').join(', ')})
+     ORDER BY r.name`,
+    ids,
+  );
+  return users.map((user) => ({
+    ...user,
+    roles: rows
+      .filter((row) => Number(row.user_id) === user.id)
+      .map((row) => ({
+        code: String(row.code),
+        name: String(row.name),
+        scopeType: String(row.scope_type),
+        scopeName: (row.department_name ?? row.branch_name ?? null) as string | null,
+      })),
+  }));
+}
+
 export async function listUsers(listQuery: PageQuery & { status: string }) {
   const where = ['1 = 1'];
   const params: unknown[] = [];
@@ -55,10 +86,19 @@ export async function listUsers(listQuery: PageQuery & { status: string }) {
      LIMIT ${limit} OFFSET ${offset}`,
     params,
   );
-  return { data: rows.map(mapUser), meta: pageMeta(listQuery, total) };
+  return { data: await attachRoles(pool, rows.map(mapUser)), meta: pageMeta(listQuery, total) };
 }
 
-export async function createUser(input: { username: string; email: string; password: string; employeeId?: number | null }, actor: Actor) {
+type RoleInput = { roleId: number; scopeType: string; scopeId?: number; reason?: string };
+
+export async function createUser(
+  auth: AuthContext,
+  input: { username: string; email: string; password: string; employeeId?: number | null; role?: RoleInput },
+  actor: Actor,
+) {
+  if (input.role) {
+    checkScopeShape(input.role);
+  }
   return withTransaction(async (connection) => {
     if (input.employeeId) {
       const employee = await queryOne<RowDataPacket>(connection, 'SELECT id FROM employees WHERE id = ?', [input.employeeId]);
@@ -87,12 +127,16 @@ export async function createUser(input: { username: string; email: string; passw
       ipAddress: actor.ipAddress,
       userAgent: actor.userAgent,
     });
+    if (input.role) {
+      await insertRoleAssignment(connection, auth, result.insertId, input.role, actor);
+    }
     const rows = await query<RowDataPacket[]>(
       connection,
       `SELECT u.*, CONCAT(e.first_name, ' ', e.last_name) AS employee_name, e.employee_number ${userFrom} WHERE u.id = ?`,
       [result.insertId],
     );
-    return mapUser(rows[0]);
+    const [withRoles] = await attachRoles(connection, [mapUser(rows[0])]);
+    return withRoles;
   });
 }
 
@@ -201,65 +245,66 @@ async function roleProtection(db: Db, roleId: number) {
   return { role, permissions, protectedRole };
 }
 
-export async function assignRole(
-  auth: AuthContext,
-  userId: number,
-  input: { roleId: number; scopeType: string; scopeId?: number; reason?: string },
-  actor: Actor,
-) {
+function checkScopeShape(input: RoleInput) {
   if ((input.scopeType === 'department' || input.scopeType === 'branch') && !input.scopeId) {
     throw new HttpError(422, 'Choose the department or branch this role applies to.', 'SCOPE_REQUIRED');
   }
   if ((input.scopeType === 'global' || input.scopeType === 'own') && input.scopeId) {
     throw new HttpError(422, 'This scope does not take a record.', 'SCOPE_UNEXPECTED');
   }
-  return withTransaction(async (connection) => {
-    const target = await queryOne<RowDataPacket>(connection, 'SELECT id, username FROM users WHERE id = ?', [userId]);
-    if (!target) {
-      throw notFound('User');
-    }
-    const { role, protectedRole } = await roleProtection(connection, input.roleId);
-    if (input.scopeType === 'department') {
-      const department = await queryOne<RowDataPacket>(connection, `SELECT id FROM departments WHERE id = ? AND status = 'active'`, [input.scopeId]);
-      if (!department) throw new HttpError(422, 'Select an active department.', 'INVALID_DEPARTMENT');
-    }
-    if (input.scopeType === 'branch') {
-      const branch = await queryOne<RowDataPacket>(connection, `SELECT id FROM branches WHERE id = ? AND status = 'active'`, [input.scopeId]);
-      if (!branch) throw new HttpError(422, 'Select an active branch.', 'INVALID_BRANCH');
-    }
-    if (protectedRole && isTechnicalAdmin(auth) && userId === auth.userId) {
-      throw new HttpError(403, 'You cannot assign a confidential or expenditure role to your own account.', 'SELF_PRIVILEGE_DENIED');
-    }
-    if (protectedRole && (!input.reason || input.reason.trim().length < 8)) {
-      throw new HttpError(422, 'Give a reason of at least 8 characters when assigning this role.', 'REASON_REQUIRED');
-    }
-    const result = await execute(
-      connection,
-      `INSERT INTO user_roles (user_id, role_id, scope_type, scope_id, assigned_by) VALUES (?, ?, ?, ?, ?)`,
-      [userId, input.roleId, input.scopeType, input.scopeId ?? null, actor.userId],
-    );
-    await writeAudit(connection, {
-      userId: actor.userId,
-      action: protectedRole ? 'user.role.assign.protected' : 'user.role.assign',
-      module: 'users',
-      entityType: 'user_role',
-      entityId: result.insertId,
-      newValue: { userId, username: target.username, role: role.code, scopeType: input.scopeType, scopeId: input.scopeId ?? null, reason: input.reason ?? null },
-      ipAddress: actor.ipAddress,
-      userAgent: actor.userAgent,
-    });
-    if (protectedRole) {
-      await notifyUsersWithPermission(connection, 'permissions.manage_protected', {
-        title: 'Protected role assigned',
-        body: `${role.code} was assigned to ${target.username}.`,
-        notificationType: 'security.protected_role',
-        entityType: 'user',
-        entityId: userId,
-        excludeUserId: actor.userId,
-      });
-    }
-    return { id: result.insertId };
+}
+
+async function insertRoleAssignment(connection: Db, auth: AuthContext, userId: number, input: RoleInput, actor: Actor) {
+  const target = await queryOne<RowDataPacket>(connection, 'SELECT id, username FROM users WHERE id = ?', [userId]);
+  if (!target) {
+    throw notFound('User');
+  }
+  const { role, protectedRole } = await roleProtection(connection, input.roleId);
+  if (input.scopeType === 'department') {
+    const department = await queryOne<RowDataPacket>(connection, `SELECT id FROM departments WHERE id = ? AND status = 'active'`, [input.scopeId]);
+    if (!department) throw new HttpError(422, 'Select an active department.', 'INVALID_DEPARTMENT');
+  }
+  if (input.scopeType === 'branch') {
+    const branch = await queryOne<RowDataPacket>(connection, `SELECT id FROM branches WHERE id = ? AND status = 'active'`, [input.scopeId]);
+    if (!branch) throw new HttpError(422, 'Select an active branch.', 'INVALID_BRANCH');
+  }
+  if (protectedRole && isTechnicalAdmin(auth) && userId === auth.userId) {
+    throw new HttpError(403, 'You cannot assign a confidential or expenditure role to your own account.', 'SELF_PRIVILEGE_DENIED');
+  }
+  if (protectedRole && (!input.reason || input.reason.trim().length < 8)) {
+    throw new HttpError(422, 'Give a reason of at least 8 characters when assigning this role.', 'REASON_REQUIRED');
+  }
+  const result = await execute(
+    connection,
+    `INSERT INTO user_roles (user_id, role_id, scope_type, scope_id, assigned_by) VALUES (?, ?, ?, ?, ?)`,
+    [userId, input.roleId, input.scopeType, input.scopeId ?? null, actor.userId],
+  );
+  await writeAudit(connection, {
+    userId: actor.userId,
+    action: protectedRole ? 'user.role.assign.protected' : 'user.role.assign',
+    module: 'users',
+    entityType: 'user_role',
+    entityId: result.insertId,
+    newValue: { userId, username: target.username, role: role.code, scopeType: input.scopeType, scopeId: input.scopeId ?? null, reason: input.reason ?? null },
+    ipAddress: actor.ipAddress,
+    userAgent: actor.userAgent,
   });
+  if (protectedRole) {
+    await notifyUsersWithPermission(connection, 'permissions.manage_protected', {
+      title: 'Protected role assigned',
+      body: `${role.code} was assigned to ${target.username}.`,
+      notificationType: 'security.protected_role',
+      entityType: 'user',
+      entityId: userId,
+      excludeUserId: actor.userId,
+    });
+  }
+  return { id: result.insertId };
+}
+
+export async function assignRole(auth: AuthContext, userId: number, input: RoleInput, actor: Actor) {
+  checkScopeShape(input);
+  return withTransaction((connection) => insertRoleAssignment(connection, auth, userId, input, actor));
 }
 
 export async function removeRole(_auth: AuthContext, userId: number, userRoleId: number, actor: Actor) {

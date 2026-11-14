@@ -13,13 +13,6 @@ export const userListSchema = z.object({
   status: z.enum(['active', 'locked', 'disabled', 'all']).optional().default('all'),
 });
 
-export const userCreateSchema = z.object({
-  username: z.string().trim().min(3).max(60).transform((value) => value.toLowerCase()),
-  email: z.string().trim().email().max(180).transform((value) => value.toLowerCase()),
-  password: passwordSchema,
-  employeeId: z.number().int().positive().nullable().optional(),
-});
-
 export const userUpdateSchema = z.object({
   email: z.string().trim().email().max(180).transform((value) => value.toLowerCase()).optional(),
   status: z.enum(['active', 'disabled']).optional(),
@@ -31,6 +24,14 @@ export const roleAssignmentSchema = z.object({
   scopeType: z.enum(['global', 'branch', 'department', 'own']),
   scopeId: optionalId,
   reason: z.string().trim().max(500).optional(),
+});
+
+export const userCreateSchema = z.object({
+  username: z.string().trim().min(3).max(60).transform((value) => value.toLowerCase()),
+  email: z.string().trim().email().max(180).transform((value) => value.toLowerCase()),
+  password: passwordSchema,
+  employeeId: z.number().int().positive().nullable().optional(),
+  role: roleAssignmentSchema.optional(),
 });
 
 export const idParamSchema = z.object({ id: z.coerce.number().int().positive() });

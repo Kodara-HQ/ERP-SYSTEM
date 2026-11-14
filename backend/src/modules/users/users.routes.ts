@@ -15,7 +15,7 @@ usersRouter.get('/', requirePermission('users.view'), validate({ query: userList
 }));
 
 usersRouter.post('/', requirePermission('users.manage'), validate({ body: userCreateSchema }), asyncRoute(async (req, res) => {
-  res.status(201).json({ data: await createUser(req.body, { userId: req.auth!.userId, ...requestMeta(req) }) });
+  res.status(201).json({ data: await createUser(req.auth!, req.body, { userId: req.auth!.userId, ...requestMeta(req) }) });
 }));
 
 usersRouter.patch('/:id', requirePermission('users.manage'), validate({ params: idParamSchema, body: userUpdateSchema }), asyncRoute(async (req, res) => {

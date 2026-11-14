@@ -50,6 +50,8 @@ export const env = {
   isProduction: nodeEnv === 'production',
   isTest: nodeEnv === 'test',
   port: Number(optional('PORT', '4000')),
+  // Set HOST=127.0.0.1 behind a reverse proxy so the API is not reachable directly from outside.
+  host: optional('HOST', '0.0.0.0') || '0.0.0.0',
   clientOrigin: optional('CLIENT_ORIGIN', 'http://localhost:5173'),
   trustProxy: optional('TRUST_PROXY', 'false') === 'true',
   db: {

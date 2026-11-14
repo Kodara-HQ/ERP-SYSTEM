@@ -4,6 +4,6 @@ import { logger } from './utils/logger';
 
 const app = createApp();
 
-app.listen(env.port, () => {
-  logger.info(`BAJOGO ERP API listening on port ${env.port}`);
+app.listen(env.port, env.host, () => {
+  logger.info(`BAJOGO ERP API listening on ${env.host}:${env.port}`);
 });

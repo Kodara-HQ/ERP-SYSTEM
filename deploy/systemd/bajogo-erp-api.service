@@ -1,0 +1,28 @@
+# BAJOGO ERP API — systemd service
+# Copy to /etc/systemd/system/bajogo-erp-api.service, then:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now bajogo-erp-api
+
+[Unit]
+Description=BAJOGO ERP API
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=bajogo
+Group=bajogo
+WorkingDirectory=/srv/bajogo-erp/backend
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node dist/server.js
+Restart=always
+RestartSec=5
+
+# Hardening: the service can only write to its own folder.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/srv/bajogo-erp
+
+[Install]
+WantedBy=multi-user.target

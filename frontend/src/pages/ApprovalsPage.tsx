@@ -125,7 +125,139 @@ export function ApprovalsPage() {
         </table>
         {requests.data && requests.data.data.length === 0 ? <div className="px-4 py-8 text-sm text-slate-500">No requests in this queue.</div> : null}
       </div>
+      {can('approvals.delegate') ? <DelegationsPanel workflows={workflows.data?.data ?? []} /> : null}
     </section>
+  );
+}
+
+interface Delegation {
+  id: number;
+  delegator: string;
+  delegate: string;
+  workflowCode: string | null;
+  startsOn: string;
+  endsOn: string;
+  reason: string;
+  status: string;
+}
+
+interface UserOption {
+  id: number;
+  username: string;
+  employeeName: string | null;
+  status: string;
+}
+
+function dateOnly(value: string): string {
+  return String(value).slice(0, 10);
+}
+
+function DelegationsPanel({ workflows }: { workflows: WorkflowOption[] }) {
+  const { can, user } = useAuth();
+  const client = useQueryClient();
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const today = new Date().toISOString().slice(0, 10);
+  const form = useForm<{ delegateUserId: string; workflowId: string; startsOn: string; endsOn: string; reason: string }>({
+    defaultValues: { startsOn: today, endsOn: today, workflowId: '', delegateUserId: '', reason: '' },
+  });
+  const delegations = useQuery({
+    queryKey: ['approval-delegations'],
+    queryFn: () => api<{ data: Delegation[] }>('/v1/approvals/delegations'),
+  });
+  const users = useQuery({
+    queryKey: ['users', 'active-for-delegation'],
+    queryFn: () => api<{ data: UserOption[] }>('/v1/users?status=active&pageSize=200'),
+    enabled: can('users.view'),
+  });
+  const refresh = () => client.invalidateQueries({ queryKey: ['approval-delegations'] });
+  const create = useMutation({
+    mutationFn: (values: { delegateUserId: string; workflowId: string; startsOn: string; endsOn: string; reason: string }) => api('/v1/approvals/delegations', {
+      method: 'POST',
+      body: JSON.stringify({
+        delegateUserId: Number(values.delegateUserId),
+        workflowId: values.workflowId === '' ? null : Number(values.workflowId),
+        startsOn: values.startsOn,
+        endsOn: values.endsOn,
+        reason: values.reason.trim(),
+      }),
+    }),
+    onSuccess: async () => {
+      setError('');
+      setNotice('Delegation saved. The person you chose has been notified.');
+      form.reset({ startsOn: today, endsOn: today, workflowId: '', delegateUserId: '', reason: '' });
+      await refresh();
+    },
+    onError: (reason) => { setNotice(''); setError(message(reason)); },
+  });
+  const revoke = useMutation({
+    mutationFn: (id: number) => api(`/v1/approvals/delegations/${id}/revoke`, { method: 'POST' }),
+    onSuccess: async () => { setError(''); setNotice('Delegation revoked.'); await refresh(); },
+    onError: (reason) => { setNotice(''); setError(message(reason)); },
+  });
+  const candidates = (users.data?.data ?? []).filter((row) => row.status === 'active' && row.id !== user?.id);
+  const rows = delegations.data?.data ?? [];
+
+  return (
+    <div className="mt-8">
+      <h2 className="mb-1 text-lg font-semibold">Delegate my approvals</h2>
+      <p className="mb-3 text-sm text-slate-500">
+        While you are away, the person you choose can decide the approval steps that are waiting for you, including final approval, for the dates you set. Every decision they make is recorded as made on your behalf. You can revoke a delegation at any time.
+      </p>
+      {error ? <div className="mb-3"><ErrorText>{error}</ErrorText></div> : null}
+      {notice ? <div className="mb-3 text-sm text-pine">{notice}</div> : null}
+      {can('users.view') ? (
+        <form className="mb-4 grid gap-3 rounded-lg border border-line bg-white p-4 md:grid-cols-2" onSubmit={form.handleSubmit((values) => create.mutate(values))}>
+          <Field label="Act on my behalf">
+            <select className={controlClass} {...form.register('delegateUserId', { required: true })}>
+              <option value="">Select a person</option>
+              {candidates.map((row) => <option key={row.id} value={row.id}>{row.employeeName ? `${row.employeeName} (${row.username})` : row.username}</option>)}
+            </select>
+          </Field>
+          <Field label="Approval route">
+            <select className={controlClass} {...form.register('workflowId')}>
+              <option value="">All routes</option>
+              {workflows.map((workflow) => <option key={workflow.id} value={workflow.id}>{workflow.name}</option>)}
+            </select>
+          </Field>
+          <Field label="From"><input className={controlClass} type="date" {...form.register('startsOn', { required: true })} /></Field>
+          <Field label="Until (inclusive)"><input className={controlClass} type="date" {...form.register('endsOn', { required: true })} /></Field>
+          <div className="md:col-span-2">
+            <Field label="Reason" error={form.formState.errors.reason ? 'Give a reason of at least 8 characters.' : undefined}>
+              <input className={controlClass} placeholder="e.g. Annual leave, travelling abroad" {...form.register('reason', { required: true, minLength: 8, validate: (value) => value.trim().length >= 8 })} />
+            </Field>
+          </div>
+          <div className="md:col-span-2"><Button type="submit" disabled={create.isPending}>Save delegation</Button></div>
+        </form>
+      ) : (
+        <p className="mb-4 text-sm text-slate-500">Ask a system administrator to set up a delegation for you.</p>
+      )}
+      <div className="overflow-hidden rounded-lg border border-line bg-white">
+        <table className="min-w-full text-left text-sm">
+          <thead className="bg-canvas text-xs uppercase tracking-wide text-slate-500">
+            <tr>{['From', 'To', 'Route', 'Dates', 'Reason', 'Status', ''].map((header) => <th key={header} className="px-4 py-3">{header}</th>)}</tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.id} className="border-t border-line">
+                <td className="px-4 py-3">{row.delegator}</td>
+                <td className="px-4 py-3">{row.delegate}</td>
+                <td className="px-4 py-3">{row.workflowCode ?? 'All routes'}</td>
+                <td className="px-4 py-3">{dateOnly(row.startsOn)} – {dateOnly(row.endsOn)}</td>
+                <td className="px-4 py-3">{row.reason}</td>
+                <td className="px-4 py-3"><Badge value={row.status} /></td>
+                <td className="px-4 py-3">
+                  {row.status === 'active' && (row.delegator === user?.username || can('approvals.configure')) ? (
+                    <Button variant="secondary" type="button" disabled={revoke.isPending} onClick={() => revoke.mutate(row.id)}>Revoke</Button>
+                  ) : null}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {delegations.data && rows.length === 0 ? <div className="px-4 py-8 text-sm text-slate-500">No delegations.</div> : null}
+      </div>
+    </div>
   );
 }
 

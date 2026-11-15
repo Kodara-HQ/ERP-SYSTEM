@@ -103,7 +103,6 @@ export const roleCatalog: RoleSeed[] = [
       'company.edit',
       ...viewOrg,
       'organisation.request_change',
-      'users.view',
       'roles.view',
       'permissions.manage_protected',
       'audit.view',

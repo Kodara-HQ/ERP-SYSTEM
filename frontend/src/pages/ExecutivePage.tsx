@@ -26,7 +26,7 @@ export function ExecutivePage() {
   const actions = useQuery({ queryKey: ['actions'], queryFn: () => api<{ data: Action[] }>('/v1/executive/actions') });
   const meetings = useQuery({ queryKey: ['meetings'], queryFn: () => api<{ data: Meeting[] }>('/v1/executive/meetings') });
   const departments = useQuery({ queryKey: ['departments'], queryFn: () => api<{ data: Department[] }>('/v1/organisation/departments') });
-  const users = useQuery({ queryKey: ['users'], queryFn: () => api<{ data: User[] }>('/v1/users') });
+  const users = useQuery({ queryKey: ['directory-users'], queryFn: () => api<{ data: User[] }>('/v1/directory/users') });
   const save = useMutation({
     mutationFn: (task: { path: string; body: unknown }) => api(task.path, { method: 'POST', body: JSON.stringify(task.body) }),
     onSuccess: async () => {

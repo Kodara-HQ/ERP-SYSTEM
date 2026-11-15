@@ -22,7 +22,7 @@ import { executiveRouter } from './modules/executive/executive.routes';
 import { organisationRouter } from './modules/organisation/organisation.routes';
 import { rolesRouter } from './modules/roles/roles.routes';
 import { auditRouter, dashboardRouter, notificationsRouter, searchRouter } from './modules/system/system.routes';
-import { usersRouter } from './modules/users/users.routes';
+import { directoryRouter, usersRouter } from './modules/users/users.routes';
 
 export function createApp() {
   const app = express();
@@ -77,6 +77,7 @@ export function createApp() {
   app.use('/api/v1/notifications', notificationsRouter);
   app.use('/api/v1/dashboard', dashboardRouter);
   app.use('/api/v1/search', searchRouter);
+  app.use('/api/v1/directory', directoryRouter);
 
   app.use(errorHandler);
   return app;

@@ -167,8 +167,8 @@ function DelegationsPanel({ workflows }: { workflows: WorkflowOption[] }) {
   });
   const users = useQuery({
     queryKey: ['users', 'active-for-delegation'],
-    queryFn: () => api<{ data: UserOption[] }>('/v1/users?status=active&pageSize=200'),
-    enabled: can('users.view'),
+    queryFn: () => api<{ data: UserOption[] }>('/v1/directory/users'),
+    enabled: can('approvals.delegate'),
   });
   const refresh = () => client.invalidateQueries({ queryKey: ['approval-delegations'] });
   const create = useMutation({
@@ -206,7 +206,7 @@ function DelegationsPanel({ workflows }: { workflows: WorkflowOption[] }) {
       </p>
       {error ? <div className="mb-3"><ErrorText>{error}</ErrorText></div> : null}
       {notice ? <div className="mb-3 text-sm text-pine">{notice}</div> : null}
-      {can('users.view') ? (
+      {can('approvals.delegate') ? (
         <form className="mb-4 grid gap-3 rounded-lg border border-line bg-white p-4 md:grid-cols-2" onSubmit={form.handleSubmit((values) => create.mutate(values))}>
           <Field label="Act on my behalf">
             <select className={controlClass} {...form.register('delegateUserId', { required: true })}>

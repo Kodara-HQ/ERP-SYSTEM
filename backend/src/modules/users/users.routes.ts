@@ -5,7 +5,7 @@ import { requireWorkspace } from '../../services/workspaces';
 import { validate } from '../../middleware/validate';
 import { requestMeta } from '../../services/auditService';
 import { idParamSchema, roleAssignmentSchema, userCreateSchema, userListSchema, userRoleParamSchema, userUpdateSchema } from './users.schema';
-import { assignRole, createUser, listUserRoles, listUsers, removeRole, updateUser } from './users.service';
+import { assignRole, createUser, listDirectory, listUserRoles, listUsers, removeRole, updateUser } from './users.service';
 
 export const usersRouter = Router();
 usersRouter.use(requireAuth, requireWorkspace('administration'));
@@ -39,4 +39,11 @@ usersRouter.delete('/:id/roles/:userRoleId', requirePermission('users.manage'), 
       ...requestMeta(req),
     }),
   });
+}));
+
+/** Active people to pick from, for screens that assign work or delegate approvals. No account details. */
+export const directoryRouter = Router();
+directoryRouter.use(requireAuth);
+directoryRouter.get('/users', requirePermission('approvals.delegate', 'executive.review', 'users.view'), asyncRoute(async (_req, res) => {
+  res.json({ data: await listDirectory() });
 }));

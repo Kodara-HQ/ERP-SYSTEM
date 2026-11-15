@@ -364,3 +364,19 @@ export async function listUserRoles(userId: number) {
     scopeId: row.scope_id == null ? null : Number(row.scope_id),
   }));
 }
+
+export async function listDirectory() {
+  const rows = await query<RowDataPacket[]>(
+    pool,
+    `SELECT u.id, u.username, CONCAT(e.first_name, ' ', e.last_name) AS employee_name
+     FROM users u LEFT JOIN employees e ON e.id = u.employee_id
+     WHERE u.status = 'active'
+     ORDER BY u.username`,
+  );
+  return rows.map((row) => ({
+    id: Number(row.id),
+    username: String(row.username),
+    employeeName: (row.employee_name ?? null) as string | null,
+    status: 'active' as const,
+  }));
+}

@@ -40,7 +40,7 @@ export function createApp() {
   }));
   const smallJson = express.json({ limit: '1mb' });
   const documentJson = express.json({ limit: '8mb' });
-  app.use((req, res, next) => (/\/documents\/?$/.test(req.path) ? documentJson : smallJson)(req, res, next));
+  app.use((req, res, next) => (/\/(documents|import)\/?$/.test(req.path) ? documentJson : smallJson)(req, res, next));
   app.use(cookieParser());
 
   if (!env.isTest) {

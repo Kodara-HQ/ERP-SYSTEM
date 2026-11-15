@@ -1,4 +1,7 @@
 import { Router } from 'express';
+import { z } from 'zod';
+import { requireWorkspace } from '../../services/workspaces';
+import { importEmployees, importTemplate } from './employees.import';
 import { asyncRoute } from '../../middleware/asyncHandler';
 import { requireAuth, requirePermission } from '../../middleware/authenticate';
 import { validate } from '../../middleware/validate';
@@ -35,6 +38,23 @@ employeesRouter.get('/me', asyncRoute(async (req, res) => {
 
 employeesRouter.get('/', requirePermission('employees.view'), validate({ query: employeeListSchema }), asyncRoute(async (req, res) => {
   res.json(await listEmployees(req.auth!, req.query as never));
+}));
+
+const importSchema = z.object({
+  fileName: z.string().trim().min(1).max(200),
+  contentBase64: z.string().min(4).max(7_000_000),
+  commit: z.boolean().optional().default(false),
+});
+
+/** Spreadsheet import is an HR task: it needs the right to register employees in the people workspace. */
+employeesRouter.get('/import/template.xlsx', requirePermission('employees.create'), requireWorkspace('people'), asyncRoute(async (_req, res) => {
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename="employee-import-template.xlsx"');
+  res.send(await importTemplate());
+}));
+
+employeesRouter.post('/import', requirePermission('employees.create'), requireWorkspace('people'), validate({ body: importSchema }), asyncRoute(async (req, res) => {
+  res.json({ data: await importEmployees(req.auth!, req.body, actorFrom(req)) });
 }));
 
 employeesRouter.post('/', requirePermission('employees.create'), validate({ body: employeeCreateSchema }), asyncRoute(async (req, res) => {

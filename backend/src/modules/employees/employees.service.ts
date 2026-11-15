@@ -352,7 +352,7 @@ function assertConfidentialWrite(auth: AuthContext, input: object): void {
   }
 }
 
-export async function createEmployee(auth: AuthContext, input: AssignmentInput & {
+export type EmployeeCreateInput = AssignmentInput & {
   firstName: string;
   lastName: string;
   otherNames?: string | null;
@@ -369,11 +369,18 @@ export async function createEmployee(auth: AuthContext, input: AssignmentInput &
   assignmentStartDate: string;
   basicSalary?: number | null;
   allowances?: number | null;
-}, actor: Actor) {
+};
+
+export async function createEmployee(auth: AuthContext, input: EmployeeCreateInput, actor: Actor) {
+  return withTransaction((connection) => insertEmployee(connection, auth, input, actor));
+}
+
+/** Registers one employee inside the caller's transaction. Shared by the form and the spreadsheet import. */
+export async function insertEmployee(connection: Db, auth: AuthContext, input: EmployeeCreateInput, actor: Actor) {
   assertConfidentialWrite(auth, input);
   const withSalary = input.basicSalary != null;
   if (withSalary) await assertSalaryAccess(auth);
-  return withTransaction(async (connection) => {
+  {
     const companyId = await requireCompanyId(connection);
     const placement: AssignmentInput = {
       ...input,
@@ -445,7 +452,7 @@ export async function createEmployee(auth: AuthContext, input: AssignmentInput &
     });
     const row = await loadEmployeeRow(connection, employeeId);
     return presentEmployee(row!, true);
-  });
+  }
 }
 
 export async function updateEmployee(auth: AuthContext, id: number, input: Record<string, unknown>, actor: Actor) {

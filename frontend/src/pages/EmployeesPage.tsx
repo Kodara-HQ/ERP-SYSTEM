@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { Badge, Button, controlClass, Empty, ErrorText, Field, Modal, PageHeader } from '../components/ui';
+import { EmployeeImport } from '../components/EmployeeImport';
 
 interface EmployeeRow {
   id: number;
@@ -25,6 +26,7 @@ export function EmployeesPage() {
   const { can } = useAuth();
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [error, setError] = useState('');
   const client = useQueryClient();
   const employees = useQuery({
@@ -67,8 +69,14 @@ export function EmployeesPage() {
       <PageHeader
         title="Employees"
         description="Each person is an employee record. Their login, role, and current assignment are separate and keep their history."
-        action={can('employees.create') ? <Button onClick={() => { setError(''); setOpen(true); }}>Register employee</Button> : null}
+        action={can('employees.create') ? (
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => setImporting(true)}>Import from spreadsheet</Button>
+            <Button onClick={() => { setError(''); setOpen(true); }}>Register employee</Button>
+          </div>
+        ) : null}
       />
+      {importing ? <EmployeeImport onClose={() => setImporting(false)} /> : null}
       <input className={`${controlClass} mb-3 max-w-xs`} placeholder="Search name or number" value={search} onChange={(event) => setSearch(event.target.value)} aria-label="Search employees" />
       <div className="overflow-hidden rounded-lg border border-line bg-white">
         <table className="min-w-full text-left text-sm">

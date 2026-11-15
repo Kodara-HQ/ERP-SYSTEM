@@ -77,6 +77,7 @@ export const navigation: NavItem[] = [
   { group: 'My work', label: 'Legal request', to: '/legal', icon: Scale, permission: 'legal.request' },
   { group: 'Operations', label: 'Daily operations', to: '/operations', icon: ClipboardCheck, permission: 'operations.view', workspace: 'operations' },
   { group: 'Executive', label: 'Department checks', to: '/executive', icon: ClipboardCheck, permission: 'executive.review' },
+  { group: 'Executive', label: 'Reports', to: '/reports', icon: BarChart3, permission: 'executive.review' },
   { group: 'People', label: 'Employees', to: '/employees', icon: Users, permission: 'employees.view', workspace: 'people' },
   { group: 'Administration', label: 'User accounts', to: '/admin/users', icon: Shield, permission: 'users.view', workspace: 'administration' },
   { group: 'Administration', label: 'Roles', to: '/admin/roles', icon: ClipboardList, permission: 'roles.view', workspace: 'administration' },

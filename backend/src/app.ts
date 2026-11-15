@@ -23,6 +23,7 @@ import { organisationRouter } from './modules/organisation/organisation.routes';
 import { rolesRouter } from './modules/roles/roles.routes';
 import { auditRouter, dashboardRouter, notificationsRouter, searchRouter } from './modules/system/system.routes';
 import { directoryRouter, usersRouter } from './modules/users/users.routes';
+import { reportsRouter } from './modules/reports/reports.routes';
 
 export function createApp() {
   const app = express();
@@ -78,6 +79,7 @@ export function createApp() {
   app.use('/api/v1/dashboard', dashboardRouter);
   app.use('/api/v1/search', searchRouter);
   app.use('/api/v1/directory', directoryRouter);
+  app.use('/api/v1/reports', reportsRouter);
 
   app.use(errorHandler);
   return app;

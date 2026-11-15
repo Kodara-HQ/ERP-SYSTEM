@@ -19,6 +19,7 @@ import { PrivacyPage, TermsPage } from './pages/LegalPages';
 import { LegalPage } from './pages/LegalPage';
 import { OperationsPage } from './pages/OperationsPage';
 import { ExecutivePage } from './pages/ExecutivePage';
+import { ReportsPage } from './pages/ReportsPage';
 import { PayrollPage } from './pages/PayrollPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { WorkflowsPage } from './pages/WorkflowsPage';
@@ -69,6 +70,7 @@ export function App() {
         <Route path="/legal" element={<LegalPage />} />
         <Route path="/operations" element={<OperationsPage />} />
         <Route path="/executive" element={<ExecutivePage />} />
+        <Route path="/reports" element={<ReportsPage />} />
         <Route path="/employees" element={<EmployeesPage />} />
         <Route path="/employees/:id" element={<EmployeeDetailPage />} />
         <Route path="/admin/users" element={<UsersPage />} />

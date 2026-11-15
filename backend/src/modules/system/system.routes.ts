@@ -119,6 +119,43 @@ notificationsRouter.post('/:id/read', asyncRoute(async (req, res) => {
   res.json({ data: { id, isRead: true } });
 }));
 
+const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * Company-wide approval requests for the last `months` calendar months, this month included.
+ * Counts are by the month a request was submitted; the approved amount is by the month it was decided.
+ */
+export async function approvalTrend(months: number) {
+  const now = new Date();
+  const buckets = Array.from({ length: months }, (_, index) => {
+    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1 - index), 1));
+    const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+    return { month: key, label: `${monthNames[date.getUTCMonth()]} ${String(date.getUTCFullYear()).slice(2)}`, approved: 0, rejected: 0, waiting: 0, approvedAmount: 0 };
+  });
+  const start = `${buckets[0].month}-01`;
+  const rows = await query<RowDataPacket[]>(
+    pool,
+    `SELECT status, amount, submitted_at, decided_at FROM approval_requests
+     WHERE (submitted_at IS NOT NULL AND submitted_at >= ?) OR (decided_at IS NOT NULL AND decided_at >= ?)`,
+    [start, start],
+  );
+  const monthOf = (value: unknown) => (value == null ? null : new Date(value as string).toISOString().slice(0, 7));
+  const approvedStates = ['approved', 'processing', 'completed'];
+  const waitingStates = ['submitted', 'pending_review', 'under_approval', 'returned_for_correction'];
+  for (const row of rows) {
+    const status = String(row.status);
+    const submitted = buckets.find((bucket) => bucket.month === monthOf(row.submitted_at));
+    if (submitted) {
+      if (approvedStates.includes(status)) submitted.approved += 1;
+      else if (status === 'rejected') submitted.rejected += 1;
+      else if (waitingStates.includes(status)) submitted.waiting += 1;
+    }
+    const decided = buckets.find((bucket) => bucket.month === monthOf(row.decided_at));
+    if (decided && approvedStates.includes(status)) decided.approvedAmount += Number(row.amount ?? 0);
+  }
+  return buckets.map((bucket) => ({ ...bucket, approvedAmount: Number(bucket.approvedAmount.toFixed(2)) }));
+}
+
 export const dashboardRouter = Router();
 dashboardRouter.use(requireAuth, requirePermission('dashboard.view'));
 
@@ -213,6 +250,23 @@ dashboardRouter.get('/summary', asyncRoute(async (req, res) => {
         transactionClause(visibility, { department: 'ea.department_id', employee: 'lr.employee_id', user: 'lr.created_by' }).params,
       ),
     };
+    // HR readers who cannot open employee records (the CEO) still get the headcount HR reports already show them.
+    if (!summary.employees) {
+      const departments = departmentClause(visibility, 'd.id');
+      const headcount = await query<RowDataPacket[]>(
+        pool,
+        `SELECT d.name AS department, COUNT(e.id) AS headcount
+         FROM departments d
+         LEFT JOIN employee_assignments ea ON ea.department_id = d.id AND ea.is_primary = 1 AND ea.end_date IS NULL
+         LEFT JOIN employees e ON e.id = ea.employee_id AND e.employment_status IN ('active', 'probation') AND e.deleted_at IS NULL
+         WHERE d.status = 'active' AND ${departments.sql}
+         GROUP BY d.id, d.name
+         ORDER BY d.name`,
+        departments.params,
+      );
+      summary.headcountByDepartment = headcount.map((item) => ({ department: String(item.department), headcount: Number(item.headcount) }));
+      summary.headcount = headcount.reduce((sum, item) => sum + Number(item.headcount), 0);
+    }
   }
   if (hasPermission(auth, 'leave.apply') && auth.employeeId) {
     summary.myLeave = await scalar(
@@ -288,6 +342,9 @@ dashboardRouter.get('/summary', asyncRoute(async (req, res) => {
       pendingReports: await scalar(pool, `SELECT COUNT(*) FROM payroll_runs WHERE status = 'submitted_for_ceo'`)
         + await scalar(pool, `SELECT COUNT(*) FROM legal_documents WHERE status = 'awaiting_ceo'`),
     };
+    summary.approvalTrend = await approvalTrend(6);
+    const company = await query<RowDataPacket[]>(pool, 'SELECT currency_code FROM companies ORDER BY id LIMIT 1');
+    summary.currencyCode = company[0]?.currency_code ? String(company[0].currency_code) : '';
   }
   res.json({ data: summary });
 }));

@@ -66,9 +66,29 @@ describe('enterprise workflows', () => {
     const blocked = await request(app).get('/api/v1/payroll').set(auth(session.it));
     expect(blocked.status).toBe(403);
 
-    const draft = await request(app).post('/api/v1/payroll').set(auth(session.hr)).send({ year: 2026, month: 6 });
+    // An HR officer prepares payroll; the HR Manager reviews and submits it.
+    const officerId = await createAccount('hrofficer', 'HR_OFFICER');
+    const officerEmployee = await request(app).post('/api/v1/employees').set(auth(session.hr)).send({
+      firstName: 'Esi', lastName: 'Officer', employmentType: 'permanent',
+      departmentId: hrPlace.departmentId, positionId: hrPlace.positionId, branchId: hrPlace.branchId, assignmentStartDate: '2026-01-15',
+    });
+    expect((await request(app).patch(`/api/v1/users/${officerId}`).set(auth(session.admin)).send({ employeeId: officerEmployee.body.data.id })).status).toBe(200);
+    await request(app).post('/api/v1/payroll/compensation').set(auth(session.hr)).send({
+      employeeId: officerEmployee.body.data.id, effectiveFrom: '2026-01-01', basicSalary: 0, allowances: 0, deductions: 0,
+    });
+    const officer = await login(app, 'hrofficer');
+
+    const managerDraft = await request(app).post('/api/v1/payroll').set(auth(session.hr)).send({ year: 2026, month: 5 });
+    expect(managerDraft.status).toBe(201);
+    const selfSubmit = await request(app).post(`/api/v1/payroll/${managerDraft.body.data.id}/submit`).set(auth(session.hr)).send();
+    expect(selfSubmit.status).toBe(403);
+    expect(selfSubmit.body.error.code).toBe('SEGREGATION_DENIED');
+
+    const draft = await request(app).post('/api/v1/payroll').set(auth(officer)).send({ year: 2026, month: 6 });
     expect(draft.status).toBe(201);
     const id = draft.body.data.id as number;
+    const officerSubmit = await request(app).post(`/api/v1/payroll/${id}/submit`).set(auth(officer)).send();
+    expect(officerSubmit.status).toBe(403);
     const submitted = await request(app).post(`/api/v1/payroll/${id}/submit`).set(auth(session.hr)).send();
     expect(submitted.body.data.status).toBe('submitted_to_accounts');
 

@@ -6,6 +6,7 @@ import { writeAudit } from '../../services/auditService';
 import { hasFinalBusinessAuthority, hasPermission, isTechnicalAdmin } from '../../services/access';
 import { requireCompanyId, nextReference } from '../../services/companyContext';
 import { workspaceAllows, workspaceGate } from '../../services/workspaces';
+import { assertPaymentSegregation, assertSegregation } from '../../services/governance';
 import { createRequest, decideRequest, resubmitRequest } from '../approvals/approval.service';
 import { onApprovalChange, type ApprovalChange } from '../approvals/approval.hooks';
 import { postJournal } from '../finance/finance.service';
@@ -65,6 +66,14 @@ async function assertPay(auth: AuthContext) {
   const gate = await gateFor(auth);
   if (!hasPermission(auth, 'payroll.pay') || !workspaceAllows(gate, 'finance')) {
     throw new HttpError(403, 'Only accounts can pay salaries.', 'FORBIDDEN');
+  }
+}
+
+/** HR officers prepare payroll; the HR Manager reviews and submits it to accounts. */
+async function assertSubmit(auth: AuthContext) {
+  await assertPrepare(auth);
+  if (!hasPermission(auth, 'payroll.submit')) {
+    throw new HttpError(403, 'Only the HR Manager can review and submit payroll to accounts.', 'FORBIDDEN');
   }
 }
 
@@ -373,11 +382,14 @@ export async function updatePayrollLines(auth: AuthContext, id: number, lines: A
 }
 
 export async function submitPayroll(auth: AuthContext, id: number, actor: Actor) {
-  await assertPrepare(auth);
+  await assertSubmit(auth);
   return withTransaction(async (connection) => {
     const run = await queryOne<RowDataPacket>(connection, 'SELECT * FROM payroll_runs WHERE id = ? FOR UPDATE', [id]);
     if (!run) throw notFound('Payroll');
     if (String(run.status) !== 'draft') throw new HttpError(409, 'Only a draft payroll can be submitted.', 'NOT_DRAFT');
+    await assertSegregation(connection, 'PAYROLL_PREPARER_NOT_SUBMITTER', Number(run.prepared_by) === auth.userId,
+      'You prepared this payroll, so another HR manager must review and submit it.');
+    await addEvent(connection, id, auth.userId, 'hr_review', 'draft', 'draft', 'Reviewed by the HR Manager.');
     if (Number(run.employee_count) === 0 || cents(run.total_net) <= 0) throw new HttpError(422, 'Payroll needs at least one payable salary.', 'EMPTY_PAYROLL');
     const approval = await createRequest(auth, {
       workflowCode: 'PAYROLL',
@@ -399,7 +411,7 @@ export async function submitPayroll(auth: AuthContext, id: number, actor: Actor)
 }
 
 export async function resubmitPayroll(auth: AuthContext, id: number, actor: Actor) {
-  await assertPrepare(auth);
+  await assertSubmit(auth);
   const run = await loadRun(pool, id);
   if (String(run.status) !== 'returned_to_hr') throw new HttpError(409, 'Only payroll returned by accounts can be resubmitted.', 'NOT_RETURNED');
   if (!run.approval_request_id) throw new HttpError(409, 'This payroll has no approval route.', 'NO_APPROVAL');
@@ -494,6 +506,10 @@ export async function paySalaries(auth: AuthContext, id: number, input: { lineId
     const run = await queryOne<RowDataPacket>(connection, 'SELECT * FROM payroll_runs WHERE id = ? FOR UPDATE', [id]);
     if (!run) throw notFound('Payroll');
     if (!payable.has(String(run.status))) throw new HttpError(409, 'This payroll is not ready for payment.', 'NOT_PAYABLE');
+    await assertPaymentSegregation(connection, {
+      approvalRequestId: run.approval_request_id == null ? null : Number(run.approval_request_id),
+      payerUserId: auth.userId,
+    });
     const cash = await queryOne<RowDataPacket>(connection, `SELECT * FROM cash_accounts WHERE id = ? AND company_id = ? AND status = 'active'`, [input.cashAccountId, companyId]);
     if (!cash) throw new HttpError(422, 'Choose an active cash account.', 'INVALID_CASH_ACCOUNT');
     const salary = await queryOne<RowDataPacket>(connection, `SELECT id FROM ledger_accounts WHERE company_id = ? AND code = '5100' AND status = 'active'`, [companyId]);

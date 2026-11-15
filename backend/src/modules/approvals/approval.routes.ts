@@ -22,11 +22,19 @@ import {
   runReminders,
   submitRequest,
   updateRequest,
+  updateWorkflowSettings,
+  runEscalations,
+  listRequestDocuments,
+  attachRequestDocument,
+  downloadRequestDocument,
 } from './approval.service';
 import {
   commentSchema,
   decisionSchema,
   delegationSchema,
+  documentParamSchema,
+  documentUploadSchema,
+  workflowSettingsSchema,
   idParamSchema,
   requestListSchema,
   requestWriteSchema,
@@ -59,6 +67,30 @@ approvalsRouter.post('/workflows', requirePermission('approvals.configure'), val
 approvalsRouter.put('/workflows/:id', requirePermission('approvals.configure'), validate({ params: idParamSchema, body: workflowReplaceSchema }), asyncRoute(async (req, res) => {
   const steps = req.body.steps.map((step: unknown) => stepInputSchema.parse(step));
   res.json({ data: await replaceWorkflowSteps(Number(req.params.id), steps, actor(req)) });
+}));
+
+approvalsRouter.patch('/workflows/:id', requirePermission('approvals.configure'), validate({ params: idParamSchema, body: workflowSettingsSchema }), asyncRoute(async (req, res) => {
+  res.json({ data: await updateWorkflowSettings(Number(req.params.id), req.body, actor(req)) });
+}));
+
+approvalsRouter.post('/escalations/run', requirePermission('approvals.configure', 'governance.configure'), asyncRoute(async (req, res) => {
+  res.json({ data: await runEscalations(actor(req)) });
+}));
+
+approvalsRouter.get('/requests/:id/documents', requirePermission('approvals.view'), validate({ params: idParamSchema }), asyncRoute(async (req, res) => {
+  res.json({ data: await listRequestDocuments(req.auth!, Number(req.params.id)) });
+}));
+
+approvalsRouter.post('/requests/:id/documents', requirePermission('approvals.view'), validate({ params: idParamSchema, body: documentUploadSchema }), asyncRoute(async (req, res) => {
+  res.status(201).json({ data: await attachRequestDocument(req.auth!, Number(req.params.id), req.body, actor(req)) });
+}));
+
+approvalsRouter.get('/requests/:id/documents/:documentId', requirePermission('approvals.view'), validate({ params: documentParamSchema }), asyncRoute(async (req, res) => {
+  const file = await downloadRequestDocument(req.auth!, Number(req.params.id), Number(req.params.documentId));
+  res.setHeader('Content-Type', file.contentType);
+  res.setHeader('Content-Disposition', `attachment; filename="${file.fileName.replace(/"/g, '')}"`);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.send(file.content);
 }));
 
 approvalsRouter.get('/requests', requirePermission('approvals.view'), validate({ query: requestListSchema }), asyncRoute(async (req, res) => {

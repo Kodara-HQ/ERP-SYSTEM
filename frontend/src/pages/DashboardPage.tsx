@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import { DepartmentRegistersPanel } from './ManagementPages';
 import { useQuery } from '@tanstack/react-query';
 import {
   AlertTriangle,
@@ -565,6 +566,8 @@ export function DashboardPage() {
       ) : null}
 
       <div className={columns[lists.length]}>{lists}</div>
+
+      <DepartmentRegistersPanel />
 
       <div className="relative overflow-hidden rounded-xl bg-gradient-to-r from-navy via-pine to-pine px-5 py-5 text-cream shadow-card sm:px-7">
         <img src="/brand/bajogo-logo-panel.jpg" alt="" className="pointer-events-none absolute inset-y-0 right-0 hidden h-full w-[42%] object-cover opacity-50 [mask-image:linear-gradient(to_right,transparent,black_45%)] md:block" />

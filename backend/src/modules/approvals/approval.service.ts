@@ -9,6 +9,9 @@ import { requireCompanyId, nextReference } from '../../services/companyContext';
 import { writeAudit, type AuditEntry } from '../../services/auditService';
 import { notifyUser } from '../../services/notify';
 import { hasFinalBusinessAuthority, hasPermission, isTechnicalAdmin } from '../../services/access';
+import { assertSegregation, authorityLimitFor, governanceSettings, ruleEnabled, withinLimit } from '../../services/governance';
+import { countDocuments, documentContent, listDocuments, storeDocument } from '../../services/documents';
+import { conditionFlags } from './workflowCatalog';
 import type { AuthContext } from '../../types/auth';
 import { HttpError, notFound } from '../../utils/httpError';
 import { limitOffset, pageMeta, type PageQuery } from '../../utils/pagination';
@@ -44,6 +47,10 @@ interface RequestRow extends RowDataPacket {
   completed_at: string | null;
   created_at: string;
   company_id: number;
+  special_approval: number;
+  requires_supporting_document: number;
+  source_type: string | null;
+  source_id: number | null;
 }
 
 interface StepRow extends RowDataPacket {
@@ -65,10 +72,21 @@ interface StepRow extends RowDataPacket {
   comment: string | null;
   decided_at: string | null;
   decided_by_username: string | null;
+  escalate_after_hours: number | null;
+  escalation_role_code: string | null;
+  activated_at: string | null;
+  escalated_at: string | null;
+  added_reason: string | null;
 }
 
+/** The fields that decide who may act on a step. Planned steps that are not stored yet use the same shape. */
+type StepAssignee = Pick<StepRow, 'resolver' | 'role_code' | 'position_code'> & {
+  escalated_at?: string | null;
+  escalation_role_code?: string | null;
+};
+
 const requestSelect = `
-  SELECT r.*, w.code AS workflow_code, w.name AS workflow_name, w.transaction_kind, w.completion_role_code,
+  SELECT r.*, w.code AS workflow_code, w.name AS workflow_name, w.transaction_kind, w.completion_role_code, w.requires_supporting_document,
          u.username AS requester_username, u.employee_id AS requester_employee_id,
          d.name AS department_name, b.name AS branch_name
   FROM approval_requests r
@@ -113,6 +131,8 @@ function mapRequest(row: RequestRow, extra?: { canDecide?: boolean }) {
     decidedAt: row.decided_at,
     completedAt: row.completed_at,
     createdAt: row.created_at,
+    specialApproval: flag(row.special_approval ?? 0),
+    requiresSupportingDocument: flag(row.requires_supporting_document ?? 0),
     canDecide: extra?.canDecide ?? false,
   };
 }
@@ -134,6 +154,10 @@ function mapStep(row: StepRow) {
     delegationId: row.delegation_id == null ? null : Number(row.delegation_id),
     comment: row.comment,
     decidedAt: row.decided_at,
+    activatedAt: row.activated_at ?? null,
+    escalatedAt: row.escalated_at ?? null,
+    escalationRoleCode: row.escalated_at ? row.escalation_role_code : null,
+    addedReason: row.added_reason ?? null,
   };
 }
 
@@ -175,7 +199,17 @@ async function loadSteps(db: Db, requestId: number): Promise<StepRow[]> {
   );
 }
 
-async function eligibleUserIds(db: Db, request: RequestRow, step: Pick<StepRow, 'resolver' | 'role_code' | 'position_code'>): Promise<number[]> {
+/** Principals for a step. An escalated step is also open to the holders of the escalation role. */
+async function eligibleUserIds(db: Db, request: RequestRow, step: StepAssignee): Promise<number[]> {
+  const base = await assignedUserIds(db, request, step);
+  if (step.escalated_at && step.escalation_role_code) {
+    const escalated = await assignedUserIds(db, request, { resolver: 'role', role_code: step.escalation_role_code, position_code: null });
+    return [...new Set([...base, ...escalated])];
+  }
+  return base;
+}
+
+async function assignedUserIds(db: Db, request: RequestRow, step: StepAssignee): Promise<number[]> {
   const requesterId = Number(request.requester_user_id);
   if (step.resolver === 'role') {
     const rows = await query<RowDataPacket[]>(
@@ -358,7 +392,7 @@ async function activateNext(db: Db, request: RequestRow): Promise<string> {
       const ids = group.map((step) => Number(step.id));
       await execute(
         db,
-        `UPDATE approval_request_steps SET status = 'pending' WHERE id IN (${ids.map(() => '?').join(', ')}) AND status = 'waiting'`,
+        `UPDATE approval_request_steps SET status = 'pending', activated_at = UTC_TIMESTAMP(3) WHERE id IN (${ids.map(() => '?').join(', ')}) AND status = 'waiting'`,
         ids,
       );
       for (const step of group) {
@@ -410,6 +444,82 @@ async function activateNext(db: Db, request: RequestRow): Promise<string> {
   return 'approved';
 }
 
+interface PlannedStep {
+  workflow_step_id: number | null;
+  step_order: number;
+  parallel_group: number | null;
+  name: string;
+  resolver: Resolver;
+  role_code: string | null;
+  position_code: string | null;
+  decision_kind: DecisionKind;
+  requires_expenditure_authority: number;
+  is_final_business_step: number;
+  escalate_after_hours: number | null;
+  escalation_role_code: string | null;
+  added_reason: string | null;
+  status: 'waiting' | 'skipped';
+  comment: string | null;
+}
+
+function formatAmount(value: number | null): string {
+  return value === null ? 'unlimited' : value.toFixed(2);
+}
+
+function planStep(step: RowDataPacket): PlannedStep {
+  return {
+    workflow_step_id: Number(step.id),
+    step_order: Number(step.step_order),
+    parallel_group: step.parallel_group == null ? null : Number(step.parallel_group),
+    name: String(step.name),
+    resolver: step.resolver as Resolver,
+    role_code: step.role_code == null ? null : String(step.role_code),
+    position_code: step.position_code == null ? null : String(step.position_code),
+    decision_kind: step.decision_kind as DecisionKind,
+    requires_expenditure_authority: Number(step.requires_expenditure_authority) ? 1 : 0,
+    is_final_business_step: Number(step.is_final_business_step) ? 1 : 0,
+    escalate_after_hours: step.escalate_after_hours == null ? null : Number(step.escalate_after_hours),
+    escalation_role_code: step.escalation_role_code == null ? null : String(step.escalation_role_code),
+    added_reason: null,
+    status: 'waiting',
+    comment: null,
+  };
+}
+
+async function requesterPositionCode(db: Db, requesterUserId: number): Promise<string | null> {
+  const row = await queryOne<RowDataPacket>(
+    db,
+    `SELECT p.code FROM users u
+     JOIN employee_assignments ea ON ea.employee_id = u.employee_id AND ea.is_primary = 1 AND ea.end_date IS NULL
+     JOIN positions p ON p.id = ea.position_id
+     WHERE u.id = ?`,
+    [requesterUserId],
+  );
+  return row?.code ? String(row.code) : null;
+}
+
+function escalateToCeo(step: PlannedStep, reason: string): void {
+  step.resolver = 'role';
+  step.role_code = 'CEO';
+  step.position_code = null;
+  step.added_reason = reason;
+}
+
+function sameSet(left: number[], right: number[]): boolean {
+  return left.length > 0 && left.length === right.length && left.every((id) => right.includes(id));
+}
+
+/**
+ * Copies the applicable route onto the request. The route decides the stages; company governance
+ * decides when the CEO joins:
+ * - steps are filtered by department, branch, amount band, requester position, and condition flag;
+ * - a step nobody else can decide (no supervisor, no department manager, or the requester holds the
+ *   only approving role) escalates to the next authority and finally the CEO;
+ * - an expenditure that reaches the executive threshold, is marked special, or is above the limit of the
+ *   manager who would give the last spending approval brings in the route's executive step (or the CEO);
+ * - a review step decided by the same people as the next step is skipped, so nobody approves twice;
+ * - when the only approver is also the only verifier, the approval escalates to keep verification independent.
+ */
 async function materialize(db: Db, request: RequestRow): Promise<void> {
   await execute(db, 'DELETE FROM approval_request_steps WHERE request_id = ?', [request.id]);
   const definitions = await query<RowDataPacket[]>(
@@ -418,35 +528,140 @@ async function materialize(db: Db, request: RequestRow): Promise<void> {
     [request.workflow_id],
   );
   const amount = money(request.amount) ?? 0;
-  const applicable = definitions.filter((step) => {
-    if (step.applies_to_department_id != null && Number(step.applies_to_department_id) !== Number(request.department_id)) {
-      return false;
-    }
-    if (step.applies_to_branch_id != null && Number(step.applies_to_branch_id) !== Number(request.branch_id)) {
-      return false;
-    }
+  const special = flag(request.special_approval ?? 0);
+  const position = await requesterPositionCode(db, Number(request.requester_user_id));
+  const matches = (step: RowDataPacket) => {
+    if (step.applies_to_department_id != null && Number(step.applies_to_department_id) !== Number(request.department_id)) return false;
+    if (step.applies_to_branch_id != null && Number(step.applies_to_branch_id) !== Number(request.branch_id)) return false;
+    if (step.applies_to_position_code != null && String(step.applies_to_position_code) !== position) return false;
     const min = money(step.min_amount as string | null);
     const max = money(step.max_amount as string | null);
     if (min != null && amount < min) return false;
     if (max != null && amount > max) return false;
+    const condition = String(step.condition_flag ?? 'always');
+    if (condition === 'special' && !special) return false;
+    if (condition === 'standard' && special) return false;
     return true;
-  });
-  if (applicable.length === 0) {
+  };
+  const plan = definitions.filter((step) => matches(step) && String(step.condition_flag ?? 'always') !== 'executive').map(planStep);
+  const executive = definitions.filter((step) => matches(step) && String(step.condition_flag ?? 'always') === 'executive').map(planStep);
+  if (plan.length === 0 && executive.length === 0) {
     throw new HttpError(422, 'This request does not match a configured approval route.', 'NO_ROUTE');
   }
-  if (request.transaction_kind === 'expenditure' && !applicable.some((step) => flag(step.is_final_business_step) && flag(step.requires_expenditure_authority))) {
-    throw new HttpError(422, 'Company expenditure needs the CEO’s final approval.', 'CEO_APPROVAL_REQUIRED');
+
+  for (const step of plan) {
+    if ((await eligibleUserIds(db, request, step)).length > 0) continue;
+    if (step.resolver === 'supervisor') {
+      const manager = { ...step, resolver: 'department_manager' as Resolver };
+      if ((await eligibleUserIds(db, request, manager)).length > 0) {
+        step.resolver = 'department_manager';
+        step.added_reason = 'No supervisor is available. The department manager decides this step.';
+        continue;
+      }
+    }
+    if (step.role_code !== 'CEO') {
+      const reason = step.resolver === 'supervisor' || step.resolver === 'department_manager'
+        ? 'No supervisor or department manager can decide this step. Escalated to the CEO.'
+        : 'Nobody other than the requester can decide this step. Escalated to the CEO.';
+      escalateToCeo(step, reason);
+    }
   }
-  for (const step of applicable) {
+
+  let executiveReason: string | null = null;
+  const settings = await governanceSettings(db);
+  if (special) {
+    executiveReason = 'The request is marked for special management approval.';
+  } else if (request.transaction_kind === 'expenditure') {
+    const threshold = settings.executiveThreshold;
+    const hasFinalSpend = plan.some((step) => step.is_final_business_step && step.requires_expenditure_authority);
+    if (threshold !== null && amount >= threshold) {
+      executiveReason = `The amount reaches the executive approval threshold of ${formatAmount(threshold)}.`;
+    } else if (!hasFinalSpend) {
+      const authority = plan.filter((step) => step.requires_expenditure_authority && !step.is_final_business_step);
+      const last = authority[authority.length - 1];
+      if (!last) {
+        executiveReason = 'No step on this route holds spending authority for this request.';
+      } else {
+        const principals = await eligibleUserIds(db, request, last);
+        let best: number | null = 0;
+        for (const userId of principals) {
+          const limit = await authorityLimitFor(db, userId, Number(request.workflow_id), request.department_id == null ? null : Number(request.department_id));
+          if (limit === null) { best = null; break; }
+          if (best !== null && limit > best) best = limit;
+        }
+        if (!withinLimit(best, amount)) {
+          executiveReason = `The amount is above the approval limit of ${formatAmount(best)} for “${last.name}”.`;
+        }
+      }
+    }
+  }
+  if (executiveReason) {
+    if (executive.length > 0) {
+      for (const step of executive) step.added_reason = executiveReason;
+      plan.push(...executive);
+    } else if (!plan.some((step) => step.is_final_business_step)) {
+      plan.push({
+        workflow_step_id: null,
+        step_order: Math.max(0, ...plan.map((step) => step.step_order)) + 1,
+        parallel_group: null,
+        name: 'CEO executive approval',
+        resolver: 'role',
+        role_code: 'CEO',
+        position_code: null,
+        decision_kind: 'approve',
+        requires_expenditure_authority: request.transaction_kind === 'expenditure' ? 1 : 0,
+        is_final_business_step: 1,
+        escalate_after_hours: null,
+        escalation_role_code: null,
+        added_reason: executiveReason,
+        status: 'waiting',
+        comment: null,
+      });
+    }
+  }
+  plan.sort((left, right) => left.step_order - right.step_order);
+
+  const principals = new Map<PlannedStep, number[]>();
+  for (const step of plan) principals.set(step, await eligibleUserIds(db, request, step));
+
+  for (const step of plan) {
+    if (step.decision_kind !== 'approve' || step.is_final_business_step) continue;
+    const approvers = principals.get(step) ?? [];
+    const conflict = plan.some((other) => other !== step && other.decision_kind === 'verify' && approvers.length === 1 && sameSet(approvers, principals.get(other) ?? []));
+    if (conflict && (await ruleEnabled(db, 'VERIFIER_NOT_APPROVER'))) {
+      escalateToCeo(step, 'The only approver also verifies this request. Escalated to the CEO so verification stays independent.');
+      principals.set(step, await eligibleUserIds(db, request, step));
+    }
+  }
+
+  for (let index = 0; index < plan.length - 1; index += 1) {
+    const step = plan[index]!;
+    const next = plan[index + 1]!;
+    if (step.decision_kind !== 'review' || step.parallel_group != null) continue;
+    if (sameSet(principals.get(step) ?? [], principals.get(next) ?? [])) {
+      step.status = 'skipped';
+      step.comment = `The same approver decides “${next.name}”.`;
+    }
+  }
+
+  for (const step of plan) {
+    if (step.status === 'skipped') continue;
+    if ((principals.get(step) ?? []).length === 0) {
+      throw new HttpError(422, `No eligible approver is available for “${step.name}”. You cannot approve your own request.`, 'NO_APPROVER');
+    }
+  }
+
+  for (const step of plan) {
     await execute(
       db,
       `INSERT INTO approval_request_steps (
          request_id, workflow_step_id, step_order, parallel_group, name, resolver, role_code, position_code,
-         decision_kind, requires_expenditure_authority, is_final_business_step, status
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting')`,
+         decision_kind, requires_expenditure_authority, is_final_business_step, status, comment,
+         escalate_after_hours, escalation_role_code, added_reason
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         request.id,
-        step.id,
+        step.workflow_step_id,
         step.step_order,
         step.parallel_group,
         step.name,
@@ -456,15 +671,13 @@ async function materialize(db: Db, request: RequestRow): Promise<void> {
         step.decision_kind,
         step.requires_expenditure_authority,
         step.is_final_business_step,
+        step.status,
+        step.comment,
+        step.escalate_after_hours,
+        step.escalation_role_code,
+        step.added_reason,
       ],
     );
-  }
-  const steps = await loadSteps(db, Number(request.id));
-  for (const step of steps) {
-    const approvers = await eligibleUserIds(db, request, step);
-    if (approvers.length === 0) {
-      throw new HttpError(422, `No eligible approver is available for “${step.name}”. You cannot approve your own request.`, 'NO_APPROVER');
-    }
   }
   await activateNext(db, request);
 }
@@ -494,6 +707,11 @@ async function assertReferences(db: Db, companyId: number, departmentId?: number
   }
 }
 
+/**
+ * A route must have someone who approves. An expenditure route must have a step that carries spending
+ * authority (a manager within their limit, or the CEO). The CEO is not required on every route:
+ * the engine adds executive approval from the company threshold and the approvers' limits.
+ */
 function validateSteps(steps: StepInput[], transactionKind: TransactionKind): void {
   const orders = new Set<number>();
   for (const step of steps) {
@@ -510,35 +728,47 @@ function validateSteps(steps: StepInput[], transactionKind: TransactionKind): vo
     if (step.minAmount != null && step.maxAmount != null && step.maxAmount < step.minAmount) {
       throw new HttpError(422, `Step ${step.name} has a maximum below its minimum.`, 'INVALID_THRESHOLD');
     }
-    if (transactionKind === 'expenditure' && step.isFinalBusinessStep && step.requiresExpenditureAuthority && (step.minAmount != null || step.maxAmount != null)) {
-      throw new HttpError(422, 'The CEO’s final financial approval applies to every amount.', 'CEO_THRESHOLD_DENIED');
+    if (!conditionFlags.includes(step.conditionFlag ?? 'always')) {
+      throw new HttpError(422, `Step ${step.name} has an unknown condition.`, 'INVALID_CONDITION');
+    }
+    if (step.isFinalBusinessStep && step.resolver !== 'role') {
+      throw new HttpError(422, `The executive step ${step.name} must be assigned to a role with final business authority.`, 'FINAL_STEP_ROLE');
     }
   }
-  if (!steps.some((step) => step.isFinalBusinessStep)) {
-    throw new HttpError(422, 'The route must keep a final business approval step for the CEO.', 'FINAL_STEP_REQUIRED');
+  if (!steps.some((step) => step.decisionKind === 'approve')) {
+    throw new HttpError(422, 'The route needs at least one approval step.', 'APPROVAL_STEP_REQUIRED');
   }
-  if (transactionKind === 'expenditure' && !steps.some((step) => step.isFinalBusinessStep && step.requiresExpenditureAuthority)) {
-    throw new HttpError(422, 'An expenditure route must keep a final step that requires expenditure authority.', 'EXPENDITURE_STEP_REQUIRED');
+  if (transactionKind === 'expenditure' && !steps.some((step) => step.requiresExpenditureAuthority)) {
+    throw new HttpError(422, 'An expenditure route needs a step that carries spending authority.', 'EXPENDITURE_STEP_REQUIRED');
   }
 }
 
 async function insertSteps(db: Db, workflowId: number, steps: StepInput[]): Promise<void> {
   for (const step of steps) {
     if (step.roleCode) {
-      const role = await queryOne<RowDataPacket>(db, 'SELECT id FROM roles WHERE code = ? AND status = \'active\'', [step.roleCode]);
+      const role = await queryOne<RowDataPacket>(db, 'SELECT id, has_final_business_authority FROM roles WHERE code = ? AND status = \'active\'', [step.roleCode]);
       if (!role) throw new HttpError(422, `Role ${step.roleCode} does not exist.`, 'INVALID_ROLE');
+      if (step.isFinalBusinessStep && Number(role.has_final_business_authority) !== 1) {
+        throw new HttpError(422, `Only a role with final business authority can hold the executive step ${step.name}.`, 'FINAL_STEP_ROLE');
+      }
     }
-    if (step.positionCode) {
-      const position = await queryOne<RowDataPacket>(db, 'SELECT id FROM positions WHERE code = ? AND status = \'active\'', [step.positionCode]);
-      if (!position) throw new HttpError(422, `Position ${step.positionCode} does not exist.`, 'INVALID_POSITION');
+    if (step.escalationRoleCode) {
+      const role = await queryOne<RowDataPacket>(db, 'SELECT id FROM roles WHERE code = ? AND status = \'active\'', [step.escalationRoleCode]);
+      if (!role) throw new HttpError(422, `Escalation role ${step.escalationRoleCode} does not exist.`, 'INVALID_ROLE');
+    }
+    for (const code of [step.positionCode, step.appliesToPositionCode]) {
+      if (!code) continue;
+      const position = await queryOne<RowDataPacket>(db, 'SELECT id FROM positions WHERE code = ? AND status = \'active\'', [code]);
+      if (!position) throw new HttpError(422, `Position ${code} does not exist.`, 'INVALID_POSITION');
     }
     await execute(
       db,
       `INSERT INTO workflow_steps (
          workflow_id, step_order, name, resolver, role_code, position_code, parallel_group, decision_kind,
          requires_expenditure_authority, is_final_business_step, min_amount, max_amount,
-         applies_to_department_id, applies_to_branch_id, status
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
+         applies_to_department_id, applies_to_branch_id, applies_to_position_code, condition_flag,
+         escalate_after_hours, escalation_role_code, status
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
       [
         workflowId,
         step.stepOrder,
@@ -554,9 +784,36 @@ async function insertSteps(db: Db, workflowId: number, steps: StepInput[]): Prom
         step.maxAmount ?? null,
         step.appliesToDepartmentId ?? null,
         step.appliesToBranchId ?? null,
+        step.appliesToPositionCode ?? null,
+        step.conditionFlag ?? 'always',
+        step.escalateAfterHours ?? null,
+        step.escalationRoleCode ?? null,
       ],
     );
   }
+}
+
+function mapWorkflowStep(step: RowDataPacket) {
+  return {
+    id: Number(step.id),
+    stepOrder: Number(step.step_order),
+    name: step.name,
+    resolver: step.resolver,
+    roleCode: step.role_code,
+    positionCode: step.position_code,
+    parallelGroup: step.parallel_group == null ? null : Number(step.parallel_group),
+    decisionKind: step.decision_kind,
+    requiresExpenditureAuthority: flag(step.requires_expenditure_authority),
+    isFinalBusinessStep: flag(step.is_final_business_step),
+    minAmount: money(step.min_amount),
+    maxAmount: money(step.max_amount),
+    appliesToDepartmentId: step.applies_to_department_id == null ? null : Number(step.applies_to_department_id),
+    appliesToBranchId: step.applies_to_branch_id == null ? null : Number(step.applies_to_branch_id),
+    appliesToPositionCode: step.applies_to_position_code ?? null,
+    conditionFlag: step.condition_flag ?? 'always',
+    escalateAfterHours: step.escalate_after_hours == null ? null : Number(step.escalate_after_hours),
+    escalationRoleCode: step.escalation_role_code ?? null,
+  };
 }
 
 export async function listWorkflows() {
@@ -568,7 +825,7 @@ export async function listWorkflows() {
   );
   const steps = await query<RowDataPacket[]>(
     pool,
-    `SELECT s.* FROM workflow_steps s JOIN workflows w ON w.id = s.workflow_id WHERE w.company_id = ? ORDER BY s.step_order`,
+    `SELECT s.* FROM workflow_steps s JOIN workflows w ON w.id = s.workflow_id WHERE w.company_id = ? AND s.status = 'active' ORDER BY s.step_order`,
     [companyId],
   );
   return workflows.map((workflow) => ({
@@ -578,24 +835,57 @@ export async function listWorkflows() {
     description: workflow.description,
     transactionKind: workflow.transaction_kind,
     completionRoleCode: workflow.completion_role_code,
+    requiresSupportingDocument: flag(workflow.requires_supporting_document ?? 0),
     status: workflow.status,
-    steps: steps.filter((step) => Number(step.workflow_id) === Number(workflow.id)).map((step) => ({
-      id: Number(step.id),
-      stepOrder: Number(step.step_order),
-      name: step.name,
-      resolver: step.resolver,
-      roleCode: step.role_code,
-      positionCode: step.position_code,
-      parallelGroup: step.parallel_group == null ? null : Number(step.parallel_group),
-      decisionKind: step.decision_kind,
-      requiresExpenditureAuthority: flag(step.requires_expenditure_authority),
-      isFinalBusinessStep: flag(step.is_final_business_step),
-      minAmount: money(step.min_amount),
-      maxAmount: money(step.max_amount),
-      appliesToDepartmentId: step.applies_to_department_id == null ? null : Number(step.applies_to_department_id),
-      appliesToBranchId: step.applies_to_branch_id == null ? null : Number(step.applies_to_branch_id),
-    })),
+    steps: steps.filter((step) => Number(step.workflow_id) === Number(workflow.id)).map(mapWorkflowStep),
   }));
+}
+
+export async function updateWorkflowSettings(id: number, input: {
+  name?: string;
+  description?: string | null;
+  status?: 'active' | 'inactive';
+  requiresSupportingDocument?: boolean;
+  completionRoleCode?: string;
+}, actor: Actor) {
+  return withTransaction(async (connection) => {
+    const workflow = await queryOne<RowDataPacket>(connection, 'SELECT * FROM workflows WHERE id = ? FOR UPDATE', [id]);
+    if (!workflow) throw notFound('Workflow');
+    if (input.completionRoleCode) {
+      const role = await queryOne<RowDataPacket>(connection, 'SELECT id FROM roles WHERE code = ? AND status = \'active\'', [input.completionRoleCode]);
+      if (!role) throw new HttpError(422, 'The completion role does not exist.', 'INVALID_ROLE');
+    }
+    const next = {
+      name: input.name ?? String(workflow.name),
+      description: input.description === undefined ? workflow.description : input.description,
+      status: input.status ?? String(workflow.status),
+      requiresSupportingDocument: input.requiresSupportingDocument ?? flag(workflow.requires_supporting_document ?? 0),
+      completionRoleCode: input.completionRoleCode ?? workflow.completion_role_code,
+    };
+    await execute(
+      connection,
+      `UPDATE workflows SET name = ?, description = ?, status = ?, requires_supporting_document = ?, completion_role_code = ? WHERE id = ?`,
+      [next.name, next.description, next.status, next.requiresSupportingDocument ? 1 : 0, next.completionRoleCode, id],
+    );
+    await writeAudit(connection, {
+      userId: actor.userId,
+      action: 'workflow.settings',
+      module: 'approvals',
+      entityType: 'workflow',
+      entityId: id,
+      previousValue: {
+        name: workflow.name,
+        description: workflow.description,
+        status: workflow.status,
+        requiresSupportingDocument: flag(workflow.requires_supporting_document ?? 0),
+        completionRoleCode: workflow.completion_role_code,
+      },
+      newValue: next,
+      ipAddress: actor.ipAddress,
+      userAgent: actor.userAgent,
+    });
+    return { id, code: workflow.code, ...next };
+  });
 }
 
 export async function createWorkflow(input: {
@@ -637,15 +927,20 @@ export async function replaceWorkflowSteps(id: number, steps: StepInput[], actor
     const workflow = await queryOne<RowDataPacket>(connection, 'SELECT id, code, transaction_kind FROM workflows WHERE id = ? FOR UPDATE', [id]);
     if (!workflow) throw notFound('Workflow');
     validateSteps(steps, workflow.transaction_kind as TransactionKind);
+    const previous = await query<RowDataPacket[]>(connection, `SELECT * FROM workflow_steps WHERE workflow_id = ? ORDER BY step_order`, [id]);
     await execute(connection, 'DELETE FROM workflow_steps WHERE workflow_id = ?', [id]);
     await insertSteps(connection, id, steps);
+    const summary = (step: { name: unknown; roleCode?: unknown; decisionKind?: unknown; minAmount?: unknown; maxAmount?: unknown; conditionFlag?: unknown }) => ({
+      name: step.name, role: step.roleCode ?? null, kind: step.decisionKind, minAmount: step.minAmount ?? null, maxAmount: step.maxAmount ?? null, condition: step.conditionFlag ?? 'always',
+    });
     await writeAudit(connection, {
       userId: actor.userId,
       action: 'workflow.update',
       module: 'approvals',
       entityType: 'workflow',
       entityId: id,
-      newValue: { code: workflow.code, steps: steps.map((step) => ({ name: step.name, minAmount: step.minAmount ?? null, maxAmount: step.maxAmount ?? null })) },
+      previousValue: { code: workflow.code, steps: previous.map((step) => summary(mapWorkflowStep(step))) },
+      newValue: { code: workflow.code, steps: steps.map(summary) },
       ipAddress: actor.ipAddress,
       userAgent: actor.userAgent,
     });
@@ -725,9 +1020,10 @@ export async function getRequest(auth: AuthContext, id: number) {
   if (!allowed && !decided && !processor) throw notFound('Approval request');
   const actions = await query<RowDataPacket[]>(
     pool,
-    `SELECT a.*, u.username FROM approval_actions a JOIN users u ON u.id = a.actor_user_id WHERE a.request_id = ? ORDER BY a.id`,
+    `SELECT a.*, u.username FROM approval_actions a LEFT JOIN users u ON u.id = a.actor_user_id WHERE a.request_id = ? ORDER BY a.id`,
     [id],
   );
+  const financeReader = hasFinalBusinessAuthority(auth) || hasPermission(auth, 'finance.view');
   return {
     ...mapRequest(row, { canDecide: await canDecide(pool, auth.userId, row) }),
     steps: steps.map(mapStep),
@@ -735,10 +1031,152 @@ export async function getRequest(auth: AuthContext, id: number) {
       id: Number(action.id),
       action: action.action,
       comment: action.comment,
-      actor: action.username,
+      actor: action.username ?? 'System',
       createdAt: action.created_at,
     })),
+    documents: await listDocuments(pool, requestEntities(row)),
+    budget: financeReader ? await budgetPosition(row) : null,
   };
+}
+
+function requestEntities(row: RequestRow): Array<{ type: string; id: number }> {
+  const entities = [{ type: 'approval_request', id: Number(row.id) }];
+  if (row.source_type && row.source_id != null) entities.push({ type: String(row.source_type), id: Number(row.source_id) });
+  return entities;
+}
+
+/**
+ * Budget availability for finance verification: the department's approved budgets for the year, the
+ * expense already posted, and other approved spending that has not been completed.
+ */
+async function budgetPosition(row: RequestRow) {
+  if (row.transaction_kind !== 'expenditure' || row.department_id == null) return null;
+  const year = new Date().getUTCFullYear();
+  const departmentId = Number(row.department_id);
+  const approved = Number((await queryOne<RowDataPacket>(
+    pool,
+    `SELECT COALESCE(SUM(amount), 0) AS total FROM budgets WHERE status = 'approved' AND budget_year = ? AND department_id = ?`,
+    [year, departmentId],
+  ))?.total ?? 0);
+  const spent = Number((await queryOne<RowDataPacket>(
+    pool,
+    `SELECT COALESCE(SUM(l.debit - l.credit), 0) AS total
+     FROM journal_lines l
+     JOIN journals j ON j.id = l.journal_id
+     JOIN ledger_accounts a ON a.id = l.ledger_account_id
+     WHERE a.account_type = 'expense' AND l.department_id = ? AND j.journal_date BETWEEN ? AND ?`,
+    [departmentId, `${year}-01-01`, `${year}-12-31`],
+  ))?.total ?? 0);
+  const committed = Number((await queryOne<RowDataPacket>(
+    pool,
+    `SELECT COALESCE(SUM(r.amount), 0) AS total FROM approval_requests r JOIN workflows w ON w.id = r.workflow_id
+     WHERE w.transaction_kind = 'expenditure' AND r.department_id = ? AND r.id <> ?
+       AND r.status IN ('approved', 'processing') AND r.decided_at >= ?`,
+    [departmentId, row.id, `${year}-01-01`],
+  ))?.total ?? 0);
+  const available = Math.round((approved - spent - committed) * 100) / 100;
+  const amount = money(row.amount) ?? 0;
+  return { year, approvedBudget: approved, spent, committed, available, amount, sufficient: approved > 0 && amount <= available };
+}
+
+async function assertCanSee(auth: AuthContext, row: RequestRow): Promise<void> {
+  const allowed = Number(row.requester_user_id) === auth.userId || seesAll(auth) || await canDecide(pool, auth.userId, row);
+  if (allowed) return;
+  const steps = await loadSteps(pool, Number(row.id));
+  if (steps.some((step) => Number(step.decided_by_user_id) === auth.userId)) return;
+  if (row.completion_role_code != null && auth.grants.some((grant) => grant.roleCode === row.completion_role_code)) return;
+  throw notFound('Approval request');
+}
+
+export async function listRequestDocuments(auth: AuthContext, id: number) {
+  const row = await queryOne<RequestRow>(pool, `${requestSelect} WHERE r.id = ?`, [id]);
+  if (!row) throw notFound('Approval request');
+  await assertCanSee(auth, row);
+  return listDocuments(pool, requestEntities(row));
+}
+
+/** The requester, an assigned approver, or a past decider may attach evidence. Documents are never removed. */
+export async function attachRequestDocument(auth: AuthContext, id: number, input: {
+  fileName: string; contentType: string; contentBase64: string; description?: string | null;
+}, actor: Actor) {
+  return withTransaction(async (connection) => {
+    const row = await lockRequest(connection, id);
+    await assertCanSee(auth, row);
+    if (['rejected', 'cancelled', 'completed'].includes(row.status)) {
+      throw new HttpError(409, 'Documents cannot be added to a closed request.', 'REQUEST_CLOSED');
+    }
+    const stored = await storeDocument(connection, {
+      companyId: Number(row.company_id), entityType: 'approval_request', entityId: id,
+      fileName: input.fileName, contentType: input.contentType, contentBase64: input.contentBase64,
+      description: input.description ?? null, userId: auth.userId,
+    });
+    await recordAction(connection, id, null, auth.userId, 'attach', stored.fileName);
+    await audit(connection, actor, 'approval.attach', id, { documentId: stored.id, fileName: stored.fileName, sha256: stored.sha256, sizeBytes: stored.sizeBytes });
+    return stored;
+  });
+}
+
+export async function downloadRequestDocument(auth: AuthContext, id: number, documentId: number) {
+  const row = await queryOne<RequestRow>(pool, `${requestSelect} WHERE r.id = ?`, [id]);
+  if (!row) throw notFound('Approval request');
+  await assertCanSee(auth, row);
+  return documentContent(pool, documentId, requestEntities(row));
+}
+
+/**
+ * Time-based escalation. A step pending longer than its escalation window (the step's own hours, or the
+ * company default) opens to the escalation role (the step's, or the company default, normally the CEO),
+ * which is notified. The original approver can still decide.
+ */
+export async function runEscalations(actor: { userId: number | null; ipAddress: string | null; userAgent: string | null }, now: Date = new Date()) {
+  const settings = await governanceSettings(pool);
+  const rows = await query<RowDataPacket[]>(
+    pool,
+    `SELECT s.id, s.request_id, s.name, s.role_code, s.activated_at, s.escalate_after_hours, s.escalation_role_code
+     FROM approval_request_steps s
+     JOIN approval_requests r ON r.id = s.request_id
+     WHERE s.status = 'pending' AND s.escalated_at IS NULL AND s.activated_at IS NOT NULL
+       AND r.status IN ('pending_review', 'under_approval')`,
+  );
+  let escalated = 0;
+  for (const row of rows) {
+    const hours = row.escalate_after_hours == null ? settings.escalationHours : Number(row.escalate_after_hours);
+    if (!hours) continue;
+    const activated = new Date(`${String(row.activated_at).replace(' ', 'T')}${String(row.activated_at).endsWith('Z') ? '' : 'Z'}`);
+    if (Number.isNaN(activated.getTime()) || activated.getTime() + hours * 3600_000 > now.getTime()) continue;
+    const target = row.escalation_role_code ? String(row.escalation_role_code) : settings.escalationRoleCode;
+    if (target === row.role_code) continue;
+    await withTransaction(async (connection) => {
+      const request = await lockRequest(connection, Number(row.request_id));
+      await execute(
+        connection,
+        `UPDATE approval_request_steps SET escalated_at = UTC_TIMESTAMP(3), escalation_role_code = ? WHERE id = ? AND escalated_at IS NULL`,
+        [target, row.id],
+      );
+      const comment = `“${row.name}” waited more than ${hours} hours and was escalated to ${target}.`;
+      await execute(
+        connection,
+        `INSERT INTO approval_actions (request_id, request_step_id, actor_user_id, action, comment) VALUES (?, ?, ?, 'escalate', ?)`,
+        [request.id, row.id, actor.userId, comment],
+      );
+      const holders = await assignedUserIds(connection, request, { resolver: 'role', role_code: target, position_code: null });
+      for (const userId of holders) {
+        await notifyUser(connection, userId, {
+          title: `Escalated: ${request.reference_number}`,
+          body: `${request.title} — ${comment}`,
+          notificationType: 'approval.escalated',
+          entityType: 'approval_request',
+          entityId: request.id,
+        });
+      }
+      await writeAudit(connection, {
+        userId: actor.userId, action: 'approval.escalate', module: 'approvals', entityType: 'approval_request', entityId: request.id,
+        newValue: { step: row.name, escalatedTo: target, afterHours: hours }, ipAddress: actor.ipAddress, userAgent: actor.userAgent,
+      });
+    });
+    escalated += 1;
+  }
+  return { escalated };
 }
 
 export async function createRequest(auth: AuthContext, input: {
@@ -749,6 +1187,7 @@ export async function createRequest(auth: AuthContext, input: {
   departmentId?: number | null;
   branchId?: number | null;
   submit?: boolean;
+  specialApproval?: boolean;
   sourceType?: string | null;
   sourceId?: number | null;
 }, actor: Actor, db?: Db) {
@@ -766,8 +1205,8 @@ export async function createRequest(auth: AuthContext, input: {
       connection,
       `INSERT INTO approval_requests (
          company_id, reference_number, workflow_id, title, details, amount, currency_code,
-         department_id, branch_id, requester_user_id, status, source_type, source_id
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)`,
+         department_id, branch_id, requester_user_id, status, source_type, source_id, special_approval
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)`,
       [
         companyId,
         reference,
@@ -781,9 +1220,10 @@ export async function createRequest(auth: AuthContext, input: {
         auth.userId,
         input.sourceType ?? null,
         input.sourceId ?? null,
+        input.specialApproval ? 1 : 0,
       ],
     );
-    await audit(connection, actor, 'approval.create', result.insertId, { reference, workflow: input.workflowCode });
+    await audit(connection, actor, 'approval.create', result.insertId, { reference, workflow: input.workflowCode, amount: input.amount ?? null, specialApproval: Boolean(input.specialApproval) });
     if (input.submit) {
       const request = await lockRequest(connection, result.insertId);
       await materialize(connection, request);
@@ -807,6 +1247,7 @@ export async function updateRequest(auth: AuthContext, id: number, input: {
   amount?: number | null;
   departmentId?: number | null;
   branchId?: number | null;
+  specialApproval?: boolean;
 }, actor: Actor) {
   return withTransaction(async (connection) => {
     const request = await lockRequest(connection, id);
@@ -818,11 +1259,17 @@ export async function updateRequest(auth: AuthContext, id: number, input: {
     await execute(
       connection,
       `UPDATE approval_requests
-       SET title = ?, details = ?, amount = ?, department_id = ?, branch_id = ?
+       SET title = ?, details = ?, amount = ?, department_id = ?, branch_id = ?, special_approval = ?
        WHERE id = ?`,
-      [input.title, input.details ?? null, input.amount ?? null, input.departmentId ?? null, input.branchId ?? null, id],
+      [input.title, input.details ?? null, input.amount ?? null, input.departmentId ?? null, input.branchId ?? null,
+        input.specialApproval === undefined ? Number(request.special_approval ?? 0) : (input.specialApproval ? 1 : 0), id],
     );
-    await audit(connection, actor, 'approval.update', id, { title: input.title, amount: input.amount ?? null });
+    await writeAudit(connection, {
+      userId: actor.userId, action: 'approval.update', module: 'approvals', entityType: 'approval_request', entityId: id,
+      previousValue: { title: request.title, details: request.details, amount: money(request.amount), departmentId: request.department_id, branchId: request.branch_id, specialApproval: flag(request.special_approval ?? 0) },
+      newValue: { title: input.title, details: input.details ?? null, amount: input.amount ?? null, departmentId: input.departmentId ?? null, branchId: input.branchId ?? null, specialApproval: input.specialApproval ?? flag(request.special_approval ?? 0) },
+      ipAddress: actor.ipAddress, userAgent: actor.userAgent,
+    });
     const saved = await queryOne<RequestRow>(connection, `${requestSelect} WHERE r.id = ?`, [id]);
     return mapRequest(saved!);
   });
@@ -896,13 +1343,44 @@ export async function decideRequest(auth: AuthContext, id: number, input: { acti
     }
     const actorAuthority = await authorityOf(connection, auth.userId);
     const principalAuthority = principalUserId === auth.userId ? actorAuthority : await authorityOf(connection, principalUserId);
+    let authorityCheck: { amount: number; limit: number | null } | null = null;
+    if (input.action === 'approve') {
+      const decidedByMe = steps.filter((step) => step.id !== chosen!.id && step.status === 'approved'
+        && [auth.userId, principalUserId].includes(Number(step.decided_by_user_id)));
+      if (chosen.decision_kind === 'approve') {
+        await assertSegregation(connection, 'VERIFIER_NOT_APPROVER', decidedByMe.some((step) => step.decision_kind === 'verify'),
+          'You verified this request, so you cannot also approve it.');
+      }
+      if (chosen.decision_kind === 'verify') {
+        await assertSegregation(connection, 'VERIFIER_NOT_APPROVER', decidedByMe.some((step) => step.decision_kind === 'approve'),
+          'You approved this request, so you cannot also verify it.');
+      }
+      if (flag(request.requires_supporting_document ?? 0) && chosen.decision_kind !== 'review') {
+        const entities = [{ type: 'approval_request', id }];
+        if (request.source_type && request.source_id != null) entities.push({ type: String(request.source_type), id: Number(request.source_id) });
+        if ((await countDocuments(connection, entities)) === 0) {
+          throw new HttpError(422, 'Attach a supporting document before this request is verified or approved.', 'DOCUMENT_REQUIRED');
+        }
+      }
+      const laterExecutive = steps.some((step) => Number(step.step_order) > Number(chosen!.step_order)
+        && flag(step.is_final_business_step) && step.status !== 'skipped');
+      if (flag(chosen.requires_expenditure_authority) && !flag(chosen.is_final_business_step) && !laterExecutive && request.transaction_kind === 'expenditure') {
+        const departmentId = request.department_id == null ? null : Number(request.department_id);
+        const ownLimit = await authorityLimitFor(connection, auth.userId, Number(request.workflow_id), departmentId);
+        const principalLimit = principalUserId === auth.userId ? ownLimit : await authorityLimitFor(connection, principalUserId, Number(request.workflow_id), departmentId);
+        const limit = ownLimit === null || principalLimit === null ? null : Math.max(ownLimit, principalLimit);
+        authorityCheck = { amount: money(request.amount) ?? 0, limit };
+      }
+    }
     assertApprovalAllowed({
+      authorityCheck,
       actorUserId: auth.userId,
       requesterUserId: Number(request.requester_user_id),
       actorIsTechnicalAdmin: actorAuthority.technical,
       actorCanApproveExpenditure: !actorAuthority.technical && (actorAuthority.expenditure || principalAuthority.expenditure),
       actorHasFinalBusinessAuthority: !actorAuthority.technical && (actorAuthority.final || principalAuthority.final),
-      transactionKind: flag(chosen.requires_expenditure_authority) ? request.transaction_kind : 'general',
+      // The executive step needs expenditure authority. A manager's spending step is checked against their limit instead.
+      transactionKind: flag(chosen.requires_expenditure_authority) && flag(chosen.is_final_business_step) ? request.transaction_kind : 'general',
       isFinalBusinessStep: flag(chosen.is_final_business_step),
     });
 

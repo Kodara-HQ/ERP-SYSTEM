@@ -26,6 +26,9 @@ import {
   Banknote,
   Scale,
   ClipboardCheck,
+  Gavel,
+  Library,
+  Megaphone,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -41,7 +44,15 @@ export interface NavItem {
 }
 
 export const navigation: NavItem[] = [
-  { group: 'Overview', label: 'Dashboard', to: '/', icon: LayoutDashboard, permission: 'dashboard.view' },
+  { group: 'Overview', label: 'My dashboard', to: '/', icon: LayoutDashboard, permission: 'dashboard.view' },
+  { group: 'Overview', label: 'Company dashboard', to: '/company-overview', icon: Megaphone, permission: 'dashboard.view' },
+  { group: 'My work', label: 'Reports and performance', to: '/management', icon: BarChart3, permission: 'reports.submit' },
+  { group: 'My work', label: 'Reports and performance', to: '/management', icon: BarChart3, permission: 'reports.review' },
+  { group: 'My work', label: 'Department registers', to: '/registers', icon: Library, permission: 'support.request' },
+  { group: 'My work', label: 'Department registers', to: '/registers', icon: Library, permission: 'operations.view' },
+  { group: 'My work', label: 'Department registers', to: '/registers', icon: Library, permission: 'legal.view_confidential' },
+  { group: 'My work', label: 'Department registers', to: '/registers', icon: Library, permission: 'it.view' },
+  { group: 'My work', label: 'Department registers', to: '/registers', icon: Library, permission: 'marketing.view' },
   { group: 'Company', label: 'Company profile', to: '/company', icon: Building2, permission: 'company.view', workspace: 'organisation' },
   { group: 'Organisation', label: 'Branches', to: '/organisation/branches', icon: MapPin, permission: 'branches.view', workspace: 'organisation' },
   { group: 'Organisation', label: 'Locations', to: '/organisation/locations', icon: MapPin, permission: 'locations.view', workspace: 'organisation' },
@@ -50,6 +61,7 @@ export const navigation: NavItem[] = [
   { group: 'My work', label: 'Change requests', to: '/organisation/changes', icon: GitBranch, permission: 'organisation.request_change' },
   { group: 'Organisation', label: 'Change implementation', to: '/organisation/changes', icon: GitBranch, permission: 'organisation.implement_change', workspace: 'organisation' },
   { group: 'Approvals', label: 'Approval requests', to: '/approvals', icon: ListChecks, permission: 'approvals.view', end: true },
+  { group: 'Administration', label: 'Approval governance', to: '/admin/governance', icon: Gavel, permission: 'governance.view', workspace: 'administration' },
   { group: 'Administration', label: 'Workflow routes', to: '/approvals/workflows', icon: SlidersHorizontal, permission: 'approvals.configure', workspace: 'administration' },
   { group: 'My work', label: 'Leave', to: '/hr', icon: CalendarDays, permission: 'leave.apply', end: true },
   { group: 'HR', label: 'Leave', to: '/hr', icon: CalendarDays, permission: 'hr.view', workspace: 'hr', end: true },

@@ -4,12 +4,18 @@ import { visibleNavigation } from './navigation';
 describe('navigation permissions', () => {
   it('hides administration from an operational role', () => {
     const items = visibleNavigation(['dashboard.view', 'departments.view', 'positions.view', 'notifications.view']);
-    expect(items.map((item) => item.to)).toEqual(['/', '/organisation/departments', '/organisation/positions']);
+    expect(items.map((item) => item.to)).toEqual(['/', '/company-overview', '/organisation/departments', '/organisation/positions']);
   });
 
   it('shows the audit log only with audit permission', () => {
     expect(visibleNavigation(['dashboard.view']).some((item) => item.to === '/admin/audit')).toBe(false);
     expect(visibleNavigation(['audit.view']).some((item) => item.to === '/admin/audit')).toBe(true);
+  });
+
+  it('shows approval governance to the CEO and the administrator but not to department staff', () => {
+    expect(visibleNavigation(['governance.view'], ['*']).some((item) => item.to === '/admin/governance')).toBe(true);
+    expect(visibleNavigation(['dashboard.view', 'reports.submit'], ['operations']).some((item) => item.to === '/admin/governance')).toBe(false);
+    expect(visibleNavigation(['dashboard.view', 'reports.submit'], ['operations']).some((item) => item.to === '/management')).toBe(true);
   });
 
   it('shows approval requests to someone who can view them', () => {

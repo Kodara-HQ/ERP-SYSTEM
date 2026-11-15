@@ -4,6 +4,7 @@ import { execute, query, queryOne, scalar, withTransaction, type Db } from '../.
 import { createRequest, resubmitRequest } from '../approvals/approval.service';
 import { onApprovalChange, type ApprovalChange } from '../approvals/approval.hooks';
 import { writeAudit } from '../../services/auditService';
+import { assertSegregation } from '../../services/governance';
 import { hasPermission } from '../../services/access';
 import { recordVisibility, transactionClause } from '../../services/visibility';
 import { nextReference, requireCompanyId } from '../../services/companyContext';
@@ -530,6 +531,8 @@ export async function createOrder(auth: AuthContext, input: {
       [input.requisitionId],
     );
     if (open) throw new HttpError(409, 'This requisition already has a purchase order.', 'ORDER_EXISTS');
+    await assertSegregation(connection, 'REQUESTER_NOT_PO_ISSUER', Number(requisition.requester_user_id) === auth.userId,
+      'You requested this purchase, so someone else must issue the purchase order.');
     const supplier = await queryOne<RowDataPacket>(connection, 'SELECT id, status FROM suppliers WHERE id = ? AND company_id = ?', [input.supplierId, companyId]);
     if (!supplier || supplier.status !== 'active') throw new HttpError(422, 'Choose an active supplier.', 'INVALID_SUPPLIER');
     const sourceLines = await query<RowDataPacket[]>(connection, 'SELECT * FROM purchase_requisition_lines WHERE requisition_id = ? ORDER BY id', [input.requisitionId]);
@@ -624,6 +627,8 @@ export async function receiveGoods(auth: AuthContext, input: {
     if (!['issued', 'partial'].includes(String(order.status))) {
       throw new HttpError(409, 'Goods can be received only against an open purchase order.', 'ORDER_NOT_OPEN');
     }
+    await assertSegregation(connection, 'PO_ISSUER_NOT_RECEIVER', Number(order.issued_by) === auth.userId,
+      'You issued this purchase order, so the storekeeper must record the goods received.');
     await activeWarehouse(connection, companyId, input.warehouseId);
     const orderLines = await query<RowDataPacket[]>(connection, 'SELECT * FROM purchase_order_lines WHERE order_id = ? FOR UPDATE', [input.purchaseOrderId]);
     const byId = new Map(orderLines.map((line) => [Number(line.id), line]));

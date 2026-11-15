@@ -179,10 +179,12 @@ describe('phase 5 finance', () => {
     expect(payment.body.data.status).toBe('submitted');
     const earlyPay = await request(app).post(`/api/v1/finance/payments/${payment.body.data.id}/pay`).set(auth(session.accounts));
     expect(earlyPay.status).toBe(409);
+    // A routine payment within the manager's limit: manager approval and accounts verification, no CEO.
     await decide(session.ops, payment.body.data.approvalRequestId);
-    await decide(session.accounts, payment.body.data.approvalRequestId);
-    const approved = await decide(session.ceo, payment.body.data.approvalRequestId);
+    const approved = await decide(session.accounts, payment.body.data.approvalRequestId);
     expect(approved).toBe('approved');
+    const byRequester = await request(app).post(`/api/v1/finance/payments/${payment.body.data.id}/pay`).set(auth(session.clerk));
+    expect(byRequester.status).toBe(403);
     const paid = await request(app).post(`/api/v1/finance/payments/${payment.body.data.id}/pay`).set(auth(session.accounts));
     expect(paid.status).toBe(200);
     expect(paid.body.data.status).toBe('paid');

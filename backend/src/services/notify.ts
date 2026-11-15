@@ -19,8 +19,8 @@ export async function notifyUser(
      VALUES (?, ?, ?, ?, ?, ?)`,
     [
       userId,
-      notification.title,
-      notification.body,
+      notification.title.slice(0, 180),
+      notification.body.slice(0, 500),
       notification.notificationType,
       notification.entityType ?? null,
       notification.entityId === undefined ? null : String(notification.entityId),
@@ -65,8 +65,8 @@ export async function notifyUsersWithPermission(
        VALUES (?, ?, ?, ?, ?, ?)`,
       [
         userId,
-        notification.title,
-        notification.body,
+        notification.title.slice(0, 180),
+        notification.body.slice(0, 500),
         notification.notificationType,
         notification.entityType ?? null,
         notification.entityId === undefined ? null : String(notification.entityId),

@@ -2,6 +2,7 @@ const noIdentity = new Set(['system_settings', 'reference_sequences', 'role_perm
 
 const conflictTargets: Record<string, string> = {
   permissions: '(code)',
+  segregation_rules: '(code)',
   roles: '(code)',
   reference_sequences: '(sequence_key)',
   system_settings: '(setting_key)',

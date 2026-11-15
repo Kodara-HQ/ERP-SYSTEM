@@ -3,13 +3,47 @@ import { ZodError } from 'zod';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
 import { HttpError } from '../utils/httpError';
+import { pool } from '../database/pool';
+import { requestMeta, writeAudit } from '../services/auditService';
 
 interface SqlError extends Error {
   code?: string;
   errno?: number;
 }
 
-export function errorHandler(error: unknown, _req: Request, res: Response, _next: NextFunction): void {
+const deniedCodes = new Set([
+  'FORBIDDEN', 'SCOPE_DENIED', 'WORKSPACE_DENIED', 'SEGREGATION_DENIED', 'SELF_APPROVAL_DENIED', 'EXPENDITURE_APPROVAL_DENIED',
+  'FINAL_APPROVAL_DENIED', 'AUTHORITY_LIMIT_EXCEEDED', 'NOT_ASSIGNED', 'QUEUE_DENIED', 'CONFIDENTIAL_DENIED',
+]);
+
+/**
+ * Refused access by a signed-in user is a security event. It is written to the audit log outside the
+ * request transaction (which has already rolled back), so the attempt is kept.
+ */
+function recordDenied(req: Request, error: HttpError): Promise<void> {
+  if (error.status !== 403 || !req.auth || !deniedCodes.has(error.code ?? '')) return Promise.resolve();
+  return writeAudit(pool, {
+    userId: req.auth.userId,
+    action: 'security.access_denied',
+    module: 'security',
+    entityType: 'request',
+    entityId: null,
+    newValue: { method: req.method, path: req.originalUrl.split('?')[0], code: error.code, message: error.message },
+    ...requestMeta(req),
+  }).catch((failure: unknown) => {
+    logger.error('Could not record a refused access attempt.', { message: failure instanceof Error ? failure.message : 'Unknown error' });
+  });
+}
+
+export function errorHandler(error: unknown, req: Request, res: Response, _next: NextFunction): void {
+  if (error instanceof HttpError && error.status === 403 && req.auth) {
+    void recordDenied(req, error).finally(() => respond(error, res));
+    return;
+  }
+  respond(error, res);
+}
+
+function respond(error: unknown, res: Response): void {
   if (error instanceof ZodError) {
     res.status(422).json({
       error: {

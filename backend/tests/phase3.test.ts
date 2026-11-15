@@ -137,8 +137,11 @@ describe('phase 3 human resources', () => {
     expect(created.status).toBe(201);
     expect(created.body.data.days).toBe(5);
     expect(created.body.data.status).toBe('submitted');
-    await decide(session.hr, created.body.data.approvalRequestId);
-    const approved = await decide(session.ceo, created.body.data.approvalRequestId);
+    // Routine leave: the department manager approves and HR confirms. The CEO is not involved by role.
+    const early = await request(app).post(`/api/v1/approvals/requests/${created.body.data.approvalRequestId}/decision`).set(auth(session.hr)).send({ action: 'approve' });
+    expect(early.status).toBe(403);
+    await decide(session.ceo, created.body.data.approvalRequestId);
+    const approved = await decide(session.hr, created.body.data.approvalRequestId);
     expect(approved).toBe('approved');
 
     const balances = await request(app).get('/api/v1/hr/leave/balances').set(auth(session.clerk));

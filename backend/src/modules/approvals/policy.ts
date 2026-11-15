@@ -10,6 +10,11 @@ export interface ApprovalDecisionInput {
   actorHasFinalBusinessAuthority: boolean;
   transactionKind: ApprovalTransactionKind;
   isFinalBusinessStep: boolean;
+  /**
+   * Set when this approval is the last spending authority on the request (no executive step follows).
+   * The approver's configured financial limit must cover the amount. `null` limit means unlimited.
+   */
+  authorityCheck?: { amount: number; limit: number | null } | null;
 }
 
 /**
@@ -18,6 +23,7 @@ export interface ApprovalDecisionInput {
  * authority. Verification steps stay 'general' so a control role can verify
  * without gaining authority to approve the spend. Technical administration
  * never confers expenditure authority, and nobody can approve their own request.
+ * A manager who gives the last spending approval must hold a limit that covers the amount.
  */
 export function assertApprovalAllowed(input: ApprovalDecisionInput): void {
   if (input.actorUserId === input.requesterUserId) {
@@ -36,5 +42,20 @@ export function assertApprovalAllowed(input: ApprovalDecisionInput): void {
 
   if (input.isFinalBusinessStep && !input.actorHasFinalBusinessAuthority) {
     throw new HttpError(403, 'Only the CEO can give final business approval.', 'FINAL_APPROVAL_DENIED');
+  }
+
+  if (input.authorityCheck) {
+    if (input.actorIsTechnicalAdmin) {
+      throw new HttpError(403, 'You are not authorised to approve company expenditure.', 'EXPENDITURE_APPROVAL_DENIED');
+    }
+    const { amount, limit } = input.authorityCheck;
+    if (limit !== null && Math.round(amount * 100) > Math.round(limit * 100)) {
+      throw new HttpError(
+        403,
+        `This amount is above your approval limit of ${limit.toFixed(2)}. It must be escalated to the CEO.`,
+        'AUTHORITY_LIMIT_EXCEEDED',
+        { limit, amount },
+      );
+    }
   }
 }

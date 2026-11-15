@@ -81,12 +81,19 @@ async function decide(token: string, id: number) {
   return response.body.data.status as string;
 }
 
+/**
+ * A routine purchase within the operations manager's limit: the supervisor review is skipped because the
+ * same manager reviews operations next, finance verifies the budget, and the manager approves. No CEO step.
+ */
 async function approvePurchase(session: Awaited<ReturnType<typeof tokens>>, approvalId: number) {
   await decide(session.ops, approvalId);
-  await decide(session.ops, approvalId);
   await decide(session.accounts, approvalId);
-  const status = await decide(session.ceo, approvalId);
+  const ceoTooEarly = await request(app).post(`/api/v1/approvals/requests/${approvalId}/decision`).set(auth(session.ceo)).send({ action: 'approve' });
+  expect(ceoTooEarly.status).toBe(403);
+  const status = await decide(session.ops, approvalId);
   expect(status).toBe('approved');
+  const detail = await request(app).get(`/api/v1/approvals/requests/${approvalId}`).set(auth(session.ops));
+  expect(detail.body.data.steps.map((step: { status: string }) => step.status)).toEqual(['skipped', 'approved', 'approved', 'approved']);
 }
 
 describe('phase 4 procurement and inventory', () => {

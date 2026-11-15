@@ -9,6 +9,14 @@ import type { RowDataPacket } from '../src/database/rows';
 export const testPassword = 'TestPassword1';
 
 const tables = [
+  'department_register_entries',
+  'performance_assessments',
+  'department_targets',
+  'department_reports',
+  'announcements',
+  'supporting_documents',
+  'segregation_rules',
+  'approval_authority_limits',
   'meeting_actions',
   'management_meetings',
   'corrective_actions',

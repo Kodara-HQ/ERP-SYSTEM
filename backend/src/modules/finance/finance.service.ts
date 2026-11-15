@@ -4,6 +4,7 @@ import { execute, query, queryOne, scalar, withTransaction, type Db } from '../.
 import { createRequest, resubmitRequest } from '../approvals/approval.service';
 import { onApprovalChange, type ApprovalChange } from '../approvals/approval.hooks';
 import { writeAudit } from '../../services/auditService';
+import { assertPaymentSegregation } from '../../services/governance';
 import { hasPermission } from '../../services/access';
 import { recordVisibility, transactionClause } from '../../services/visibility';
 import { nextReference, requireCompanyId } from '../../services/companyContext';
@@ -346,6 +347,16 @@ export async function payRequest(auth: AuthContext, id: number, actor: Actor) {
     if (request.status !== 'approved' || request.journal_id != null) {
       throw new HttpError(409, 'Only an approved unpaid request can be paid.', 'NOT_APPROVED');
     }
+    await assertPaymentSegregation(connection, {
+      approvalRequestId: request.approval_request_id == null ? null : Number(request.approval_request_id),
+      payerUserId: auth.userId,
+      requesterUserId: Number(request.requester_user_id),
+    });
+    await writeAudit(connection, {
+      userId: actor.userId, action: 'finance.payment.execute', module: 'finance', entityType: 'payment_request', entityId: id,
+      previousValue: { status: request.status }, newValue: { status: 'paid', amount: Number(request.amount), payee: request.payee, executedBy: auth.userId },
+      ipAddress: actor.ipAddress, userAgent: actor.userAgent,
+    });
     const cash = await activeCash(connection, companyId, Number(request.cash_account_id));
     const amount = Number(request.amount);
     if (request.supplier_invoice_id != null) {

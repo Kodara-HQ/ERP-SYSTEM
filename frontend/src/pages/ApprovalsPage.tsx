@@ -41,8 +41,16 @@ interface RequestDetail extends RequestSummary {
     comment: string | null;
     decidedAt: string | null;
     isFinalBusinessStep: boolean;
+    roleCode: string | null;
+    addedReason: string | null;
+    escalatedAt: string | null;
+    escalationRoleCode: string | null;
   }[];
   actions: { id: number; action: string; comment: string | null; actor: string; createdAt: string }[];
+  specialApproval: boolean;
+  requiresSupportingDocument: boolean;
+  documents: { id: number; fileName: string; sizeBytes: number; uploadedBy: string; uploadedAt: string; description: string | null }[];
+  budget: { year: number; approvedBudget: number; spent: number; committed: number; available: number; amount: number; sufficient: boolean } | null;
 }
 
 function message(error: unknown): string {
@@ -54,7 +62,7 @@ export function ApprovalsPage() {
   const client = useQueryClient();
   const [queue, setQueue] = useState<'mine' | 'inbox'>('inbox');
   const [error, setError] = useState('');
-  const form = useForm<{ workflowCode: string; title: string; details: string; amount: string }>();
+  const form = useForm<{ workflowCode: string; title: string; details: string; amount: string; specialApproval: boolean }>();
   const workflows = useQuery({
     queryKey: ['approval-workflows'],
     queryFn: () => api<{ data: WorkflowOption[] }>('/v1/approvals/workflows'),
@@ -65,13 +73,14 @@ export function ApprovalsPage() {
     queryFn: () => api<{ data: RequestSummary[] }>(`/v1/approvals/requests?queue=${queue}&pageSize=50`),
   });
   const create = useMutation({
-    mutationFn: (values: { workflowCode: string; title: string; details: string; amount: string }) => api('/v1/approvals/requests', {
+    mutationFn: (values: { workflowCode: string; title: string; details: string; amount: string; specialApproval: boolean }) => api('/v1/approvals/requests', {
       method: 'POST',
       body: JSON.stringify({
         workflowCode: values.workflowCode,
         title: values.title,
         details: values.details || null,
         amount: values.amount === '' ? null : Number(values.amount),
+        specialApproval: Boolean(values.specialApproval),
         submit: true,
       }),
     }),
@@ -86,7 +95,7 @@ export function ApprovalsPage() {
 
   return (
     <section>
-      <PageHeader title="Approval requests" description="Accounts can verify a financial request. The CEO gives the final approval of company expenditure, and that approval is recorded with the time and the comment." />
+      <PageHeader title="Approval requests" description="Each request follows its configured route. Routine spending is approved by the accountable manager within their limit; the CEO joins above the executive threshold, above a manager's limit, or when special approval is requested. Every decision is recorded with the time and the comment." />
       {error ? <div className="mb-4"><ErrorText>{error}</ErrorText></div> : null}
       {can('approvals.submit') ? (
         <form className="mb-5 grid gap-3 rounded-lg border border-line bg-white p-4 md:grid-cols-2" onSubmit={form.handleSubmit((values) => create.mutate(values))}>
@@ -99,6 +108,7 @@ export function ApprovalsPage() {
           <Field label="Amount"><input className={controlClass} type="number" min="0" step="0.01" {...form.register('amount')} /></Field>
           <Field label="Title"><input className={controlClass} {...form.register('title', { required: true, minLength: 3 })} /></Field>
           <Field label="Details"><input className={controlClass} {...form.register('details')} /></Field>
+          <label className="flex items-center gap-2 text-sm text-slate-700 md:col-span-2"><input type="checkbox" className="h-4 w-4" {...form.register('specialApproval')} /> Needs special management approval (adds the CEO)</label>
           <div className="md:col-span-2"><Button type="submit" disabled={create.isPending}>Submit request</Button></div>
         </form>
       ) : null}
@@ -316,6 +326,8 @@ export function ApprovalDetailPage() {
                     </div>
                     <Badge value={step.status} />
                   </div>
+                  {step.addedReason ? <p className="mt-2 rounded bg-cream px-2 py-1 text-xs text-navy">{step.addedReason}</p> : null}
+                  {step.escalatedAt ? <p className="mt-2 text-xs font-semibold text-[#8d2f2f]">Escalated to {step.escalationRoleCode} on {step.escalatedAt.slice(0, 16)}</p> : null}
                   {step.decidedBy ? <p className="mt-2 text-sm text-slate-600">{step.decidedBy}{step.comment ? ` — ${step.comment}` : ''}</p> : null}
                 </li>
               ))}
@@ -343,6 +355,8 @@ export function ApprovalDetailPage() {
               {can('approvals.process') && item.status === 'approved' ? <Button type="button" onClick={() => act.mutate({ path: 'process' })}>Start processing</Button> : null}
               {can('approvals.process') && item.status === 'processing' ? <Button type="button" onClick={() => act.mutate({ path: 'complete' })}>Mark completed</Button> : null}
             </div>
+            {item.budget ? <BudgetPanel budget={item.budget} currency={item.currencyCode} /> : null}
+            <DocumentsPanel requestId={item.id} documents={item.documents} required={item.requiresSupportingDocument} onChange={refresh} onError={setError} />
             <article className="rounded-lg border border-line bg-white p-4">
               <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">History</h2>
               <ul className="space-y-3">
@@ -359,5 +373,83 @@ export function ApprovalDetailPage() {
         </div>
       ) : null}
     </section>
+  );
+}
+
+function BudgetPanel({ budget, currency }: { budget: NonNullable<RequestDetail['budget']>; currency: string }) {
+  const rows: Array<[string, number]> = [
+    ['Approved budget', budget.approvedBudget],
+    ['Spent this year', budget.spent],
+    ['Other approved spending', budget.committed],
+    ['Available', budget.available],
+  ];
+  return (
+    <article className="rounded-lg border border-line bg-white p-4">
+      <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">Budget check {budget.year}</h2>
+      <dl className="space-y-1 text-sm">
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex justify-between gap-3"><dt className="text-slate-600">{label}</dt><dd className="font-semibold tabular-nums">{currency} {value.toLocaleString()}</dd></div>
+        ))}
+      </dl>
+      <p className={`mt-3 rounded px-2 py-1 text-xs font-semibold ${budget.sufficient ? 'bg-khaki text-navy' : 'bg-red-50 text-[#8d2f2f]'}`}>
+        {budget.sufficient ? 'This request fits the remaining budget.' : budget.approvedBudget > 0 ? 'This request exceeds the remaining budget.' : 'No approved budget for this department this year.'}
+      </p>
+    </article>
+  );
+}
+
+function readBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+function DocumentsPanel({ requestId, documents, required, onChange, onError }: {
+  requestId: number;
+  documents: RequestDetail['documents'];
+  required: boolean;
+  onChange: () => Promise<void>;
+  onError: (message: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  async function upload(file: File | undefined) {
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { onError('A supporting document can be at most 5 MB.'); return; }
+    setBusy(true);
+    try {
+      await api(`/v1/approvals/requests/${requestId}/documents`, {
+        method: 'POST',
+        body: JSON.stringify({ fileName: file.name, contentType: file.type || 'application/octet-stream', contentBase64: await readBase64(file) }),
+      });
+      onError('');
+      await onChange();
+    } catch (reason) {
+      onError(message(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <article className="rounded-lg border border-line bg-white p-4">
+      <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">Supporting documents</h2>
+      {required ? <p className="mb-2 text-xs text-[#8d2f2f]">This route needs a supporting document before verification or approval.</p> : null}
+      <ul className="mb-3 space-y-1 text-sm">
+        {documents.map((document) => (
+          <li key={document.id}>
+            <a className="font-semibold text-pine" href={`/api/v1/approvals/requests/${requestId}/documents/${document.id}`}>{document.fileName}</a>
+            <span className="text-xs text-slate-500"> · {Math.ceil(document.sizeBytes / 1024)} KB · {document.uploadedBy}</span>
+          </li>
+        ))}
+        {documents.length === 0 ? <li className="text-slate-500">None attached.</li> : null}
+      </ul>
+      <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-line px-3 py-2 text-sm font-semibold hover:bg-cream">
+        {busy ? 'Uploading…' : 'Attach a file'}
+        <input type="file" className="hidden" accept=".pdf,.png,.jpg,.jpeg,.docx,.xlsx,.csv,.txt" disabled={busy} onChange={(event) => { void upload(event.target.files?.[0]); event.target.value = ''; }} />
+      </label>
+      <p className="mt-2 text-xs text-slate-500">Documents are kept with the request and cannot be removed.</p>
+    </article>
   );
 }

@@ -4,7 +4,15 @@ import { randomBytes } from 'crypto';
 import { env } from '../config/env';
 import { pool } from './pool';
 import { execute, query, queryOne } from './query';
-import { workflowCatalog } from '../modules/approvals/workflowCatalog';
+import {
+  authorityLimitCatalog,
+  DEFAULT_ESCALATION_HOURS,
+  DEFAULT_EXECUTIVE_THRESHOLD,
+  GOVERNANCE_VERSION,
+  workflowCatalog,
+  type WorkflowSeed,
+} from '../modules/approvals/workflowCatalog';
+import { segregationCatalog } from '../services/governance';
 import { departmentWorkspaces, initialDepartments, initialPositions, permissionCatalog, roleCatalog } from './rbacCatalog';
 import { hashPassword } from '../utils/password';
 import { logger } from '../utils/logger';
@@ -100,7 +108,11 @@ export async function seedFoundation(): Promise<void> {
       ('operational_issue_prefix', JSON_QUOTE('BJG-ISS')),
       ('departmental_review_prefix', JSON_QUOTE('BJG-REV')),
       ('corrective_action_prefix', JSON_QUOTE('BJG-COR')),
-      ('management_meeting_prefix', JSON_QUOTE('BJG-MTG'))
+      ('management_meeting_prefix', JSON_QUOTE('BJG-MTG')),
+      ('department_report_prefix', JSON_QUOTE('BJG-RPT')),
+      ('executive_approval_threshold', '${DEFAULT_EXECUTIVE_THRESHOLD}'),
+      ('approval_escalation_hours', '${DEFAULT_ESCALATION_HOURS}'),
+      ('approval_escalation_role', JSON_QUOTE('CEO'))
      ON DUPLICATE KEY UPDATE setting_key = setting_key`,
   );
   await execute(
@@ -127,10 +139,20 @@ export async function seedFoundation(): Promise<void> {
        ('operational_issue', 1),
        ('departmental_review', 1),
        ('corrective_action', 1),
-       ('management_meeting', 1)
+       ('management_meeting', 1),
+       ('department_report', 1)
      ON DUPLICATE KEY UPDATE sequence_key = sequence_key`,
   );
+  for (const rule of segregationCatalog) {
+    await execute(
+      pool,
+      `INSERT INTO segregation_rules (code, name, description, enabled, is_locked) VALUES (?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE name = VALUES(name), description = VALUES(description), is_locked = VALUES(is_locked)`,
+      [rule.code, rule.name, rule.description, rule.enabled ? 1 : 0, rule.locked ? 1 : 0],
+    );
+  }
   await seedApprovalWorkflows();
+  await seedAuthorityLimits();
   await seedLeaveTypes();
   await seedLedger();
 }
@@ -157,6 +179,39 @@ export async function seedLeaveTypes(): Promise<void> {
   }
 }
 
+async function insertCatalogSteps(workflowId: number, workflow: WorkflowSeed): Promise<void> {
+  let stepOrder = 1;
+  for (const step of workflow.steps) {
+    await execute(
+      pool,
+      `INSERT INTO workflow_steps (
+         workflow_id, step_order, name, resolver, role_code, position_code, parallel_group,
+         decision_kind, requires_expenditure_authority, is_final_business_step, min_amount, condition_flag, status
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
+      [
+        workflowId,
+        stepOrder,
+        step.name,
+        step.resolver,
+        step.roleCode ?? null,
+        step.positionCode ?? null,
+        step.parallelGroup ?? null,
+        step.decisionKind,
+        step.requiresExpenditureAuthority ? 1 : 0,
+        step.isFinalBusinessStep ? 1 : 0,
+        step.minAmount ?? null,
+        step.conditionFlag ?? 'always',
+      ],
+    );
+    stepOrder += 1;
+  }
+}
+
+/**
+ * Creates missing routes. A stored route from the first release that nobody has edited is moved to the
+ * current governance routes once (routine spending no longer goes to the CEO by default). A route an
+ * administrator has changed is left as it is. Requests already submitted keep their own copy of the steps.
+ */
 export async function seedApprovalWorkflows(): Promise<void> {
   const company = await queryOne<RowDataPacket>(pool, 'SELECT id FROM companies ORDER BY id LIMIT 1');
   if (!company) {
@@ -166,42 +221,58 @@ export async function seedApprovalWorkflows(): Promise<void> {
   for (const workflow of workflowCatalog) {
     const existing = await queryOne<RowDataPacket>(
       pool,
-      'SELECT id FROM workflows WHERE company_id = ? AND code = ?',
+      'SELECT id, governance_version FROM workflows WHERE company_id = ? AND code = ?',
       [companyId, workflow.code],
     );
     if (existing) {
+      if (Number(existing.governance_version) >= GOVERNANCE_VERSION) continue;
+      const stored = await query<RowDataPacket[]>(pool, `SELECT name FROM workflow_steps WHERE workflow_id = ? AND status = 'active' ORDER BY step_order`, [existing.id]);
+      const names = stored.map((row) => String(row.name));
+      const untouched = !workflow.previousStepNames || JSON.stringify(names) === JSON.stringify(workflow.previousStepNames);
+      if (untouched && workflow.previousStepNames) {
+        await execute(pool, 'DELETE FROM workflow_steps WHERE workflow_id = ?', [existing.id]);
+        await insertCatalogSteps(Number(existing.id), workflow);
+        await execute(pool, 'UPDATE workflows SET description = ? WHERE id = ?', [workflow.description, existing.id]);
+        await execute(
+          pool,
+          `INSERT INTO audit_logs (user_id, action, module, entity_type, entity_id, previous_value, new_value)
+           VALUES (NULL, 'workflow.governance_upgrade', 'approvals', 'workflow', ?, ?, ?)`,
+          [String(existing.id), JSON.stringify({ steps: names }), JSON.stringify({ steps: workflow.steps.map((step) => ({ name: step.name, condition: step.conditionFlag ?? 'always' })), version: GOVERNANCE_VERSION })],
+        );
+        logger.info(`Workflow ${workflow.code} moved to governance version ${GOVERNANCE_VERSION}.`);
+      } else if (workflow.previousStepNames) {
+        logger.info(`Workflow ${workflow.code} was customised and was left unchanged.`);
+      }
+      await execute(pool, 'UPDATE workflows SET governance_version = ? WHERE id = ?', [GOVERNANCE_VERSION, existing.id]);
       continue;
     }
     const created = await execute(
       pool,
-      `INSERT INTO workflows (company_id, code, name, description, transaction_kind, completion_role_code, status)
-       VALUES (?, ?, ?, ?, ?, ?, 'active')`,
-      [companyId, workflow.code, workflow.name, workflow.description, workflow.transactionKind, workflow.completionRoleCode],
+      `INSERT INTO workflows (company_id, code, name, description, transaction_kind, completion_role_code, requires_supporting_document, governance_version, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
+      [companyId, workflow.code, workflow.name, workflow.description, workflow.transactionKind, workflow.completionRoleCode,
+        workflow.requiresSupportingDocument ? 1 : 0, GOVERNANCE_VERSION],
     );
-    let stepOrder = 1;
-    for (const step of workflow.steps) {
-      await execute(
-        pool,
-        `INSERT INTO workflow_steps (
-           workflow_id, step_order, name, resolver, role_code, position_code, parallel_group,
-           decision_kind, requires_expenditure_authority, is_final_business_step, min_amount, status
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
-        [
-          created.insertId,
-          stepOrder,
-          step.name,
-          step.resolver,
-          step.roleCode ?? null,
-          step.positionCode ?? null,
-          step.parallelGroup ?? null,
-          step.decisionKind,
-          step.requiresExpenditureAuthority ? 1 : 0,
-          step.isFinalBusinessStep ? 1 : 0,
-          step.minAmount ?? null,
-        ],
-      );
-      stepOrder += 1;
-    }
+    await insertCatalogSteps(created.insertId, workflow);
+  }
+}
+
+/** Opening financial limits. Existing limits, including ones an administrator changed, are kept. */
+export async function seedAuthorityLimits(): Promise<void> {
+  const company = await queryOne<RowDataPacket>(pool, 'SELECT id FROM companies ORDER BY id LIMIT 1');
+  if (!company) return;
+  for (const limit of authorityLimitCatalog) {
+    const existing = await queryOne<RowDataPacket>(
+      pool,
+      'SELECT id FROM approval_authority_limits WHERE role_code = ? AND workflow_id IS NULL AND department_id IS NULL',
+      [limit.roleCode],
+    );
+    if (existing) continue;
+    await execute(
+      pool,
+      `INSERT INTO approval_authority_limits (company_id, role_code, max_amount, notes, status) VALUES (?, ?, ?, ?, 'active')`,
+      [company.id, limit.roleCode, limit.maxAmount, limit.notes],
+    );
   }
 }
 

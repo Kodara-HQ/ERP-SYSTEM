@@ -134,8 +134,8 @@ export function PayrollPage() {
             </article>
           ))}
           <div className="flex flex-wrap gap-2">
-            {can('payroll.manage') && row.status === 'draft' ? <Button type="button" onClick={() => act.mutate(() => api(`/v1/payroll/${row.id}/submit`, { method: 'POST' }))}>Submit to accounts</Button> : null}
-            {can('payroll.manage') && row.status === 'returned_to_hr' ? <Button type="button" onClick={() => act.mutate(() => api(`/v1/payroll/${row.id}/resubmit`, { method: 'POST' }))}>Resubmit to accounts</Button> : null}
+            {can('payroll.submit') && row.status === 'draft' ? <Button type="button" onClick={() => act.mutate(() => api(`/v1/payroll/${row.id}/submit`, { method: 'POST' }))}>Submit to accounts</Button> : null}
+            {can('payroll.submit') && row.status === 'returned_to_hr' ? <Button type="button" onClick={() => act.mutate(() => api(`/v1/payroll/${row.id}/resubmit`, { method: 'POST' }))}>Resubmit to accounts</Button> : null}
             {can('payroll.verify') && row.status === 'submitted_to_accounts' ? <Button type="button" onClick={() => act.mutate(() => api(`/v1/payroll/${row.id}/review`, { method: 'POST' }))}>Start accounts review</Button> : null}
             {can('payroll.verify') && row.status === 'under_accounts_review' ? <Button type="button" onClick={() => act.mutate(() => api(`/v1/payroll/${row.id}/forward`, { method: 'POST' }))}>Forward to CEO</Button> : null}
             {can('payroll.verify') && ['submitted_to_accounts', 'under_accounts_review'].includes(row.status) ? <Button type="button" variant="secondary" onClick={() => act.mutate(() => api(`/v1/payroll/${row.id}/return`, { method: 'POST', body: JSON.stringify({ comment }) }))}>Return to HR</Button> : null}

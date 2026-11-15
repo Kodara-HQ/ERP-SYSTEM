@@ -32,6 +32,7 @@ export const requestWriteSchema = z.object({
   departmentId: optionalId,
   branchId: optionalId,
   submit: z.boolean().optional(),
+  specialApproval: z.boolean().optional(),
 });
 
 export const decisionSchema = z.object({
@@ -78,6 +79,30 @@ export const stepInputSchema = z.object({
   maxAmount: money,
   appliesToDepartmentId: optionalId,
   appliesToBranchId: optionalId,
+  appliesToPositionCode: z.string().trim().min(2).max(40).nullable().optional(),
+  conditionFlag: z.enum(['always', 'executive', 'special', 'standard']).optional().default('always'),
+  escalateAfterHours: z.number().int().min(0).max(2160).nullable().optional(),
+  escalationRoleCode: z.string().trim().min(2).max(60).nullable().optional(),
+});
+
+export const workflowSettingsSchema = z.object({
+  name: z.string().trim().min(3).max(160).optional(),
+  description: z.string().trim().max(500).nullable().optional(),
+  status: z.enum(['active', 'inactive']).optional(),
+  requiresSupportingDocument: z.boolean().optional(),
+  completionRoleCode: z.string().trim().min(2).max(60).optional(),
+});
+
+export const documentUploadSchema = z.object({
+  fileName: z.string().trim().min(1).max(200),
+  contentType: z.string().trim().min(3).max(120),
+  description: z.string().trim().max(300).nullable().optional(),
+  contentBase64: z.string().min(4).max(7_000_000),
+});
+
+export const documentParamSchema = z.object({
+  id: z.coerce.number().int().positive(),
+  documentId: z.coerce.number().int().positive(),
 });
 
 export const idParamSchema = z.object({

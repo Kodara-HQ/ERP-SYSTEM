@@ -63,7 +63,13 @@ function reportRange(query: { from?: string; to?: string }) {
 }
 
 export const procurementRouter = Router();
-procurementRouter.use(requireAuth, requireWorkspace('procurement'));
+const procurementDesk = requireWorkspace('procurement');
+/** Stores receive goods against purchase orders, so receipts and the order list are open to the inventory workspace too. */
+const receivingDesk = requireWorkspace('procurement', 'inventory');
+procurementRouter.use(requireAuth, (req, res, next) => {
+  const receiving = req.path.startsWith('/receipts') || (req.method === 'GET' && req.path === '/orders');
+  (receiving ? receivingDesk : procurementDesk)(req, res, next);
+});
 
 procurementRouter.get('/suppliers', requirePermission('procurement.view'), asyncRoute(async (_req, res) => {
   res.json({ data: await listSuppliers() });

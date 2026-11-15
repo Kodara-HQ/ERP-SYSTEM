@@ -81,7 +81,7 @@ async function hire(hr: string, admin: string, userId: number, input: {
 }
 
 describe('phase 2 approval engine', () => {
-  it('routes a purchase through supervisor, operations, accounts verification, and the CEO', async () => {
+  it('routes a purchase through supervisor, operations, finance verification, the manager, and the CEO when the manager has no limit', async () => {
     const session = await tokens();
     const structure = await org(session.admin);
     const supervisorEmployeeId = await hire(session.hr, session.admin, session.supervisorId, {
@@ -125,7 +125,11 @@ describe('phase 2 approval engine', () => {
     expect(accountsFinal.status).toBe(403);
     const adminFinal = await request(app).post(`/api/v1/approvals/requests/${id}/decision`).set(auth(session.admin)).send({ action: 'approve' });
     expect(adminFinal.status).toBe(403);
+    const early = await request(app).post(`/api/v1/approvals/requests/${id}/decision`).set(auth(session.ceo)).send({ action: 'approve' });
+    expect(early.status).toBe(403);
 
+    const manager = await request(app).post(`/api/v1/approvals/requests/${id}/decision`).set(auth(session.lead)).send({ action: 'approve', comment: 'Recommended.' });
+    expect(manager.status).toBe(200);
     const ceo = await request(app).post(`/api/v1/approvals/requests/${id}/decision`).set(auth(session.ceo)).send({ action: 'approve', comment: 'Approved.' });
     expect(ceo.status).toBe(200);
     expect(ceo.body.data.status).toBe('approved');
@@ -136,8 +140,10 @@ describe('phase 2 approval engine', () => {
     expect(completed.body.data.status).toBe('completed');
 
     const detail = await request(app).get(`/api/v1/approvals/requests/${id}`).set(auth(session.ceo));
-    expect(detail.body.data.actions.map((action: { action: string }) => action.action)).toEqual(['submit', 'approve', 'approve', 'approve', 'approve', 'process', 'complete']);
-    expect(detail.body.data.steps.some((step: { name: string; decidedBy: string }) => step.name === 'CEO final approval' && step.decidedBy === 'ceo')).toBe(true);
+    expect(detail.body.data.actions.map((action: { action: string }) => action.action)).toEqual(['submit', 'approve', 'approve', 'approve', 'approve', 'approve', 'process', 'complete']);
+    const ceoStep = detail.body.data.steps.find((step: { name: string }) => step.name === 'CEO final approval');
+    expect(ceoStep.decidedBy).toBe('ceo');
+    expect(ceoStep.addedReason).toMatch(/approval limit/);
   });
 
   it('returns a leave request for correction and accepts the resubmission', async () => {
@@ -148,21 +154,25 @@ describe('phase 2 approval engine', () => {
       submit: true,
     });
     const id = created.body.data.id as number;
-    const missing = await request(app).post(`/api/v1/approvals/requests/${id}/decision`).set(auth(session.hr)).send({ action: 'return', comment: 'short' });
+    // The clerk has no supervisor or department manager, so the supervisor step escalates to the CEO.
+    const first = await request(app).get(`/api/v1/approvals/requests/${id}`).set(auth(session.clerk));
+    expect(first.body.data.steps[0].roleCode).toBe('CEO');
+    expect(first.body.data.steps[0].addedReason).toMatch(/Escalated to the CEO/);
+    const missing = await request(app).post(`/api/v1/approvals/requests/${id}/decision`).set(auth(session.ceo)).send({ action: 'return', comment: 'short' });
     expect(missing.status).toBe(422);
-    const returned = await request(app).post(`/api/v1/approvals/requests/${id}/decision`).set(auth(session.hr)).send({
+    const returned = await request(app).post(`/api/v1/approvals/requests/${id}/decision`).set(auth(session.ceo)).send({
       action: 'return',
       comment: 'Add the dates and the covering officer.',
     });
     expect(returned.body.data.status).toBe('returned_for_correction');
     const resubmitted = await request(app).post(`/api/v1/approvals/requests/${id}/resubmit`).set(auth(session.clerk));
-    expect(resubmitted.body.data.status).toBe('pending_review');
-    await request(app).post(`/api/v1/approvals/requests/${id}/decision`).set(auth(session.hr)).send({ action: 'approve' });
-    const final = await request(app).post(`/api/v1/approvals/requests/${id}/decision`).set(auth(session.ceo)).send({ action: 'approve' });
+    expect(resubmitted.body.data.status).toBe('under_approval');
+    await request(app).post(`/api/v1/approvals/requests/${id}/decision`).set(auth(session.ceo)).send({ action: 'approve' });
+    const final = await request(app).post(`/api/v1/approvals/requests/${id}/decision`).set(auth(session.hr)).send({ action: 'approve' });
     expect(final.body.data.status).toBe('approved');
   });
 
-  it('keeps the CEO as the final approver of a small fuel request', async () => {
+  it('approves a small fuel request within the operations limit without the CEO', async () => {
     const session = await tokens();
     const structure = await org(session.admin);
     const fleet = await request(app).post('/api/v1/organisation/positions').set(auth(session.admin)).send({
@@ -190,13 +200,9 @@ describe('phase 2 approval engine', () => {
     expect((await request(app).post(`/api/v1/approvals/requests/${id}/decision`).set(auth(fleetToken)).send({ action: 'approve' })).status).toBe(200);
     expect((await request(app).post(`/api/v1/approvals/requests/${id}/decision`).set(auth(session.ops)).send({ action: 'approve' })).status).toBe(200);
     const verified = await request(app).post(`/api/v1/approvals/requests/${id}/decision`).set(auth(session.accounts)).send({ action: 'approve' });
-    expect(verified.body.data.status).toBe('under_approval');
-    const early = await request(app).post(`/api/v1/approvals/requests/${id}/decision`).set(auth(session.accounts)).send({ action: 'approve' });
-    expect(early.status).toBe(403);
-    const final = await request(app).post(`/api/v1/approvals/requests/${id}/decision`).set(auth(session.ceo)).send({ action: 'approve' });
-    expect(final.body.data.status).toBe('approved');
+    expect(verified.body.data.status).toBe('approved');
     const detail = await request(app).get(`/api/v1/approvals/requests/${id}`).set(auth(session.ops));
-    expect(detail.body.data.steps.some((step: { name: string; isFinalBusinessStep: boolean }) => step.name === 'CEO final approval' && step.isFinalBusinessStep)).toBe(true);
+    expect(detail.body.data.steps.some((step: { roleCode: string }) => step.roleCode === 'CEO')).toBe(false);
   });
 
   it('requires every parallel approver before the route continues', async () => {
@@ -260,16 +266,33 @@ describe('phase 2 approval engine', () => {
         { stepOrder: 1, name: 'Accounts tries to approve spend', resolver: 'role', roleCode: 'ACCOUNTS_OFFICER', decisionKind: 'approve', isFinalBusinessStep: true, requiresExpenditureAuthority: true },
       ],
     });
-    expect(trap.status).toBe(201);
+    expect(trap.status).toBe(422);
+    expect(trap.body.error.code).toBe('FINAL_STEP_ROLE');
+
+    const limited = await request(app).post('/api/v1/approvals/workflows').set(auth(session.admin)).send({
+      code: 'SPEND-LIMIT',
+      name: 'Accounts spend',
+      transactionKind: 'expenditure',
+      completionRoleCode: 'ACCOUNTS_OFFICER',
+      steps: [
+        { stepOrder: 1, name: 'Accounts approves within limit', resolver: 'role', roleCode: 'ACCOUNTS_OFFICER', decisionKind: 'approve', requiresExpenditureAuthority: true },
+      ],
+    });
+    expect(limited.status).toBe(201);
     const spend = await request(app).post('/api/v1/approvals/requests').set(auth(session.clerk)).send({
-      workflowCode: 'SPEND-TRAP',
+      workflowCode: 'SPEND-LIMIT',
       title: 'Unbudgeted payment',
-      amount: 20,
+      amount: 3000,
       submit: true,
     });
+    expect(spend.status).toBe(201);
+    const limits = await request(app).get('/api/v1/governance/authority-limits').set(auth(session.admin));
+    const accountsLimit = limits.body.data.find((row: { roleCode: string }) => row.roleCode === 'ACCOUNTS_OFFICER');
+    const lowered = await request(app).patch(`/api/v1/governance/authority-limits/${accountsLimit.id}`).set(auth(session.admin)).send({ maxAmount: 1000 });
+    expect(lowered.status).toBe(200);
     const denied = await request(app).post(`/api/v1/approvals/requests/${spend.body.data.id}/decision`).set(auth(session.accounts)).send({ action: 'approve' });
     expect(denied.status).toBe(403);
-    expect(denied.body.error.message).toMatch(/expenditure/);
+    expect(denied.body.error.code).toBe('AUTHORITY_LIMIT_EXCEEDED');
   });
 
   it('stops the CEO approving their own request', async () => {

@@ -8,6 +8,7 @@ import { LoginPage, PasswordPage } from './pages/AuthPages';
 import { ChangeRequestsPage } from './pages/ChangeRequestsPage';
 import { CompanyPage } from './pages/CompanyPage';
 import { DashboardPage } from './pages/DashboardPage';
+import { CompanyOverviewPage, GovernancePage, ManagementPage, RegisterPage, RegistersIndexPage } from './pages/ManagementPages';
 import { EmployeeDetailPage, EmployeesPage } from './pages/EmployeesPage';
 import { AttendancePage, HrReportsPage, LeavePage, LifecyclePage, RecruitmentPage } from './pages/HrPages';
 import { BudgetsPage, FinanceReportsPage, LedgerPage, PaymentsPage } from './pages/FinancePages';
@@ -44,6 +45,11 @@ export function App() {
       <Route element={<Guard><Shell /></Guard>}>
         <Route path="/" element={<DashboardPage />} />
         <Route path="/company" element={<CompanyPage />} />
+        <Route path="/company-overview" element={<CompanyOverviewPage />} />
+        <Route path="/management" element={<ManagementPage />} />
+        <Route path="/registers" element={<RegistersIndexPage />} />
+        <Route path="/registers/:code" element={<RegisterPage />} />
+        <Route path="/admin/governance" element={<GovernancePage />} />
         <Route path="/organisation/branches" element={<BranchesPage />} />
         <Route path="/organisation/locations" element={<LocationsPage />} />
         <Route path="/organisation/departments" element={<DepartmentsPage />} />

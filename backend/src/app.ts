@@ -24,6 +24,9 @@ import { rolesRouter } from './modules/roles/roles.routes';
 import { auditRouter, dashboardRouter, notificationsRouter, searchRouter } from './modules/system/system.routes';
 import { directoryRouter, usersRouter } from './modules/users/users.routes';
 import { reportsRouter } from './modules/reports/reports.routes';
+import { governanceRouter } from './modules/governance/governance.routes';
+import { managementRouter } from './modules/management/management.routes';
+import { registersRouter } from './modules/registers/registers.routes';
 
 export function createApp() {
   const app = express();
@@ -35,7 +38,9 @@ export function createApp() {
     credentials: true,
     allowedHeaders: ['Content-Type', 'Authorization', 'X-BAJOGO-Client'],
   }));
-  app.use(express.json({ limit: '1mb' }));
+  const smallJson = express.json({ limit: '1mb' });
+  const documentJson = express.json({ limit: '8mb' });
+  app.use((req, res, next) => (/\/documents\/?$/.test(req.path) ? documentJson : smallJson)(req, res, next));
   app.use(cookieParser());
 
   if (!env.isTest) {
@@ -80,6 +85,9 @@ export function createApp() {
   app.use('/api/v1/search', searchRouter);
   app.use('/api/v1/directory', directoryRouter);
   app.use('/api/v1/reports', reportsRouter);
+  app.use('/api/v1/governance', governanceRouter);
+  app.use('/api/v1/management', managementRouter);
+  app.use('/api/v1/registers', registersRouter);
 
   app.use(errorHandler);
   return app;

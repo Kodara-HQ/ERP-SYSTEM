@@ -26,14 +26,26 @@ import {
   UserPlus,
   Users,
   Wallet,
+  ChevronRight,
+  Coins,
+  Trophy,
+  TrendingUp,
+  TrendingDown,
+  Leaf,
+  Wheat,
+  Factory,
+  Warehouse,
+  BookOpen,
+  Megaphone,
+  UserCheck,
   type LucideIcon,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Cell, LabelList, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { canOpenPath } from '../lib/navigation';
-import { notificationTarget, timeAgo, type NotificationResponse } from '../components/Shell';
+import { notificationTarget, timeAgo, type Notification, type NotificationResponse } from '../components/Shell';
 
 interface TrendMonth { month: string; label: string; approved: number; rejected: number; waiting: number; approvedAmount: number }
 
@@ -58,6 +70,18 @@ interface Summary {
     operations?: { openTasks: number; openIssues: number; escalatedIssues: number };
     executive?: { openReviews: number; openActions: number; pendingReports: number };
     approvalTrend?: TrendMonth[];
+    financeTrend?: { month: string; label: string; income: number; expense: number }[];
+    budgetUse?: { year: number; budget: number; spent: number };
+    departmentTasks?: { department: string; total: number; done: number }[];
+    financeDetail?: { year: number; receivables: number; payables: number; expenseByDepartment: { department: string; amount: number }[] };
+    operationsDetail?: {
+      activitiesToday: number;
+      activitiesThisMonth: number;
+      trend: { month: string; label: string; activities: number; tasksDone: number }[];
+      areas: { area: string; total: number; done: number }[];
+      alerts: { kind: 'issue' | 'stock'; title: string; severity: string; escalated: boolean }[];
+    };
+    hrDetail?: { attendance: { day: string; label: string; present: number; absent: number }[]; hiredThisYear: number };
     currencyCode?: string;
   };
 }
@@ -71,6 +95,7 @@ interface InboxRequest {
   currencyCode: string;
   status: string;
   requester: string;
+  submittedAt: string | null;
 }
 
 type Data = NonNullable<Summary['data']>;
@@ -469,6 +494,27 @@ export function DashboardPage() {
 
   const linkClass = 'transition hover:-translate-y-0.5 hover:border-pine/40 hover:shadow-[0_10px_28px_rgba(62,60,40,0.12)] focus:outline-none focus-visible:ring-2 focus-visible:ring-pine';
 
+  const greetingLine = `${greeting()}${user?.employeeName || user?.username ? `, ${(user?.employeeName || user?.username || '').split(' ')[0]}` : ''} · ${today()}`;
+  if (persona === 'finance' && data) return <FinanceDashboard data={data} money={money} canOpen={canOpen} greetingLine={greetingLine} />;
+  if (persona === 'operations' && data) return <OperationsDashboard data={data} canOpen={canOpen} greetingLine={greetingLine} />;
+  if (persona === 'hr' && data) return <HrDashboard data={data} canOpen={canOpen} notes={notes.data?.data ?? []} greetingLine={greetingLine} />;
+
+  if (persona === 'ceo' && data) {
+    return (
+      <CeoDashboard
+        data={data}
+        money={money}
+        trend={trend}
+        canOpen={canOpen}
+        inbox={inbox.data?.data ?? []}
+        inboxLoading={inbox.isLoading}
+        notes={notes.data?.data ?? []}
+        attention={attention}
+        greetingLine={`${greeting()}${user?.employeeName || user?.username ? `, ${(user?.employeeName || user?.username || '').split(' ')[0]}` : ''} · ${today()}`}
+      />
+    );
+  }
+
   return (
     <section className="mx-auto grid max-w-[1600px] gap-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -544,5 +590,657 @@ function AllClear({ text }: { text: string }) {
     <div className="flex items-center gap-2 rounded-lg bg-canvas px-3 py-3 text-sm text-pine">
       <CheckCircle2 size={16} /> {text}
     </div>
+  );
+}
+
+function percentChange(current: number, previous: number | undefined): number | null {
+  if (previous == null || previous === 0) return null;
+  return Math.round(((current - previous) / Math.abs(previous)) * 100);
+}
+
+function Trend({ change, note, upIsGood = true }: { change: number | null; note: string; upIsGood?: boolean }) {
+  return (
+    <span className="mt-1 flex items-center gap-1 text-xs text-slate-500">
+      {change != null ? (
+        <span className={`inline-flex items-center font-bold ${(change >= 0) === upIsGood ? 'text-[#0a7d0a]' : 'text-[#b02f2f]'}`}>
+          {change >= 0 ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}{Math.abs(change)}%
+        </span>
+      ) : null}
+      <span className="truncate">{note}</span>
+    </span>
+  );
+}
+
+/** Laurel branch drawn in brass, mirrored for the right side. */
+function Laurel({ flip = false }: { flip?: boolean }) {
+  return (
+    <svg viewBox="0 0 40 90" className={`h-24 w-10 shrink-0 text-[#c9a13b] ${flip ? '-scale-x-100' : ''}`} aria-hidden="true">
+      <path d="M30 86 C10 70 6 40 18 6" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+      {[0, 1, 2, 3, 4, 5].map((index) => {
+        const y = 74 - index * 12;
+        const x = 22 - index * 1.6 + (index > 3 ? 2 : 0);
+        return (
+          <g key={index} fill="currentColor">
+            <ellipse cx={x - 7} cy={y} rx="7" ry="3.2" transform={`rotate(-35 ${x - 7} ${y})`} />
+            <ellipse cx={x + 5} cy={y - 5} rx="6.5" ry="3" transform={`rotate(40 ${x + 5} ${y - 5})`} />
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function CeoDashboard({ data, money, trend, canOpen, inbox, inboxLoading, notes, attention, greetingLine }: {
+  data: Data;
+  money: string;
+  trend: Array<TrendMonth & { submitted: number }>;
+  canOpen: (path: string) => boolean;
+  inbox: InboxRequest[];
+  inboxLoading: boolean;
+  notes: Notification[];
+  attention: Item[];
+  greetingLine: string;
+}) {
+  const finance = data.financeTrend ?? [];
+  const hasFinance = finance.some((month) => month.income !== 0 || month.expense !== 0);
+  const month = finance[finance.length - 1];
+  const previous = finance[finance.length - 2];
+  const profit = month ? month.income - month.expense : 0;
+  const previousProfit = previous ? previous.income - previous.expense : undefined;
+  const thisApproval = trend[trend.length - 1];
+  const lastApproval = trend[trend.length - 2];
+  const employees = data.employees?.active ?? data.headcount ?? 0;
+  const moneyText = (value: number) => `${money} ${compact(value)}`.trim();
+
+  const cards: Array<{ label: string; value: string; change: number | null; note: string; icon: LucideIcon; tone: string; to: string }> = [
+    {
+      label: 'Company revenue', value: moneyText(month?.income ?? 0), change: hasFinance ? percentChange(month?.income ?? 0, previous?.income) : null,
+      note: hasFinance ? 'This month, on last month' : 'No income posted yet', icon: TrendingUp, tone: 'bg-pine text-cream', to: '/reports',
+    },
+    {
+      label: 'Company profit', value: moneyText(profit), change: hasFinance ? percentChange(profit, previousProfit) : null,
+      note: hasFinance ? 'Income less expenses this month' : 'No postings yet', icon: Coins, tone: 'bg-khaki text-navy', to: '/reports',
+    },
+    {
+      label: 'Approved spending', value: moneyText(thisApproval?.approvedAmount ?? 0),
+      change: thisApproval && lastApproval ? percentChange(thisApproval.approvedAmount, lastApproval.approvedAmount) : null,
+      note: `${thisApproval?.approved ?? 0} requests approved this month`, icon: Banknote, tone: 'bg-[#f6e7c1] text-[#8a5a00]', to: '/reports',
+    },
+    {
+      label: 'Total employees', value: full(employees), change: null,
+      note: data.hr ? `${data.hr.onLeaveToday} on leave today` : 'Active and on probation', icon: Users, tone: 'bg-navy text-khaki', to: canOpen('/employees') ? '/employees' : '/hr/reports',
+    },
+  ];
+
+  // Department performance: share of operational tasks done in the last 90 days. Headcount when no tasks exist yet.
+  const tasks = (data.departmentTasks ?? []).filter((row) => row.total > 0)
+    .map((row) => ({ department: row.department, value: Math.round((row.done / row.total) * 100), detail: `${row.done}/${row.total}` }))
+    .sort((a, b) => b.value - a.value);
+  const headcount = [...(data.headcountByDepartment ?? [])].filter((row) => row.headcount > 0).sort((a, b) => b.headcount - a.headcount);
+  const headTotal = headcount.reduce((sum, row) => sum + row.headcount, 0);
+  const performance = tasks.length
+    ? { title: 'Department performance', note: 'Tasks completed, last 90 days', rows: tasks, percent: true }
+    : { title: 'Staff by department', note: `${full(headTotal)} employees`, rows: headcount.map((row) => ({ department: row.department, value: row.headcount, detail: '' })), percent: false };
+  const maxValue = Math.max(1, ...performance.rows.map((row) => row.value));
+
+  // Company goal: this year's approved budget used so far; the approval rate when no budget is approved yet.
+  const budget = data.budgetUse;
+  const decided = trend.reduce((sum, item) => sum + item.approved + item.rejected, 0);
+  const approved = trend.reduce((sum, item) => sum + item.approved, 0);
+  const goal = budget && budget.budget > 0
+    ? (() => {
+      const used = Math.round((budget.spent / budget.budget) * 100);
+      return {
+        title: 'Company goal', value: used, caption: used <= 100 ? 'Within budget' : 'Over budget',
+        note: `${budget.year} budget used: ${moneyText(budget.spent)} of ${moneyText(budget.budget)}`,
+        slices: [{ label: 'Spent', value: Math.min(budget.spent, budget.budget), color: palette.pine }, { label: 'Remaining', value: Math.max(budget.budget - budget.spent, 0), color: status.waiting }],
+      };
+    })()
+    : decided > 0
+      ? { title: 'Approval rate', value: Math.round((approved / decided) * 100), caption: 'Approved', note: 'Decided requests, last 6 months', slices: [{ label: 'Approved', value: approved, color: palette.pine }, { label: 'Rejected', value: decided - approved, color: status.waiting }] }
+      : null;
+
+  const top = tasks.find((row) => row.value > 0);
+  const tiles = ['bg-[#e3ecf9] text-[#2f5ea8]', 'bg-[#ece4f7] text-[#6b46a8]', 'bg-[#f6e7c1] text-[#8a5a00]', 'bg-cream text-pine'];
+  const card = 'rounded-2xl border border-line/70 bg-white shadow-[0_2px_10px_rgba(62,60,40,0.06)]';
+
+  return (
+    <section className="mx-auto grid max-w-[1600px] gap-5">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-ink sm:text-3xl">CEO Dashboard</h1>
+          <p className="mt-0.5 text-sm font-medium text-pine">Strategic overview and final authority</p>
+        </div>
+        <p className="text-sm text-slate-500">{greetingLine}</p>
+      </header>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {cards.map((item) => {
+          const body = (
+            <>
+              <span className={`grid h-14 w-14 shrink-0 place-items-center rounded-2xl ${item.tone}`}><item.icon size={26} /></span>
+              <span className="min-w-0">
+                <span className="block truncate text-sm text-slate-500">{item.label}</span>
+                <span className="mt-0.5 block truncate text-2xl font-bold tracking-tight text-ink tabular-nums">{item.value}</span>
+                <Trend change={item.change} note={item.note} />
+              </span>
+            </>
+          );
+          return canOpen(item.to)
+            ? <Link key={item.label} to={item.to} className={`${card} flex items-center gap-4 p-5 transition hover:-translate-y-0.5 hover:shadow-[0_10px_28px_rgba(62,60,40,0.12)]`}>{body}</Link>
+            : <article key={item.label} className={`${card} flex items-center gap-4 p-5`}>{body}</article>;
+        })}
+      </div>
+
+      <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-12">
+        <article className={`${card} p-5 lg:col-span-2 xl:col-span-5`}>
+          <h2 className="text-base font-bold text-ink">{hasFinance ? 'Revenue vs expenses' : 'Approval requests'}</h2>
+          <p className="text-xs text-slate-500">{hasFinance ? `Posted to the ledger each month${money ? `, in ${money}` : ''}` : 'Submitted against approved, by month. Revenue shows once income is posted.'}</p>
+          <div className="mt-3 h-60">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={(hasFinance ? finance : trend) as Array<Record<string, string | number>>} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                <CartesianGrid stroke={ink.grid} vertical={false} />
+                <XAxis dataKey="label" {...axis} />
+                <YAxis width={hasFinance ? 48 : 32} allowDecimals={hasFinance} tickFormatter={hasFinance ? compact : undefined} {...axis} />
+                <Tooltip content={<ChartTooltip money={hasFinance ? money : undefined} />} />
+                <Legend verticalAlign="top" iconType="circle" iconSize={9} wrapperStyle={{ fontSize: 12, color: ink.secondary, paddingBottom: 8 }} />
+                <Line type="monotone" dataKey={hasFinance ? 'income' : 'submitted'} name={hasFinance ? 'Revenue' : 'Submitted'} stroke={palette.pine} strokeWidth={2.5} dot={{ r: 4, fill: palette.pine, strokeWidth: 0 }} />
+                <Line type="monotone" dataKey={hasFinance ? 'expense' : 'approved'} name={hasFinance ? 'Expenses' : 'Approved'} stroke={status.waiting} strokeWidth={2.5} dot={{ r: 4, fill: status.waiting, strokeWidth: 0 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </article>
+
+        <article className={`${card} p-5 xl:col-span-4`}>
+          <h2 className="text-base font-bold text-ink">{performance.title}</h2>
+          <p className="mb-4 text-xs text-slate-500">{performance.note}</p>
+          {performance.rows.length === 0 ? <AllClear text="No department figures yet." /> : (
+            <ul className="grid gap-3.5">
+              {performance.rows.slice(0, 6).map((row) => (
+                <li key={row.department} className="grid grid-cols-[minmax(0,6.5rem)_1fr_3rem] items-center gap-3 text-sm">
+                  <span className="truncate text-slate-600" title={row.department}>{row.department}</span>
+                  <span className="h-3 overflow-hidden rounded-full bg-canvas">
+                    <span className="block h-full rounded-full bg-gradient-to-r from-pine to-olive" style={{ width: `${Math.max(4, performance.percent ? row.value : (row.value / maxValue) * 100)}%` }} />
+                  </span>
+                  <span className="text-right font-semibold tabular-nums text-ink" title={row.detail || undefined}>{row.value}{performance.percent ? '%' : ''}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </article>
+
+        <article className={`${card} p-5 xl:col-span-3`}>
+          <h2 className="text-base font-bold text-ink">{goal?.title ?? 'Company goal'}</h2>
+          {goal ? (
+            <>
+              <div className="relative mx-auto mt-3 h-44 w-44">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={goal.slices} dataKey="value" nameKey="label" innerRadius="74%" outerRadius="100%" startAngle={90} endAngle={-270} stroke="none" isAnimationActive={false}>
+                      {goal.slices.map((slice) => <Cell key={slice.label} fill={slice.color} />)}
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="pointer-events-none absolute inset-0 grid place-items-center text-center">
+                  <div>
+                    <div className="text-4xl font-bold tabular-nums text-ink">{goal.value}%</div>
+                    <div className="text-sm font-medium text-slate-600">{goal.caption}</div>
+                  </div>
+                </div>
+              </div>
+              <p className="mt-3 text-center text-xs text-slate-500">{goal.note}</p>
+            </>
+          ) : <p className="mt-3 text-sm text-slate-500">Shows once a budget is approved for this year.</p>}
+        </article>
+      </div>
+
+      <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-12">
+        <article className={`${card} p-5 xl:col-span-5`}>
+          <header className="mb-3 flex items-center gap-2">
+            <h2 className="text-base font-bold text-ink">Pending approvals</h2>
+            {(data.approvals?.inbox ?? 0) > 0 ? <span className="grid h-6 min-w-6 place-items-center rounded-full bg-[#d03b3b] px-1.5 text-xs font-bold text-white">{data.approvals?.inbox}</span> : null}
+            <span className="ml-auto"><ViewAll to="/approvals" show={canOpen('/approvals')} /></span>
+          </header>
+          {inbox.length === 0 ? <AllClear text={inboxLoading ? 'Loading…' : 'Nothing is waiting for you.'} /> : (
+            <ul className="-mx-2 grid">
+              {inbox.slice(0, 4).map((request, index) => (
+                <li key={request.id}>
+                  <Link to={`/approvals/${request.id}`} className="flex items-center gap-3 rounded-lg px-2 py-2.5 hover:bg-canvas">
+                    <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${tiles[index % tiles.length]}`}><FileText size={15} /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-ink">{request.workflowName} – {request.title}</span>
+                      <span className="block truncate text-xs text-slate-500">{request.requester}{request.amount != null ? ` · ${request.currencyCode} ${compact(request.amount)}` : ''}</span>
+                    </span>
+                    <span className="shrink-0 text-xs text-slate-400">{request.submittedAt ? timeAgo(request.submittedAt) : ''}</span>
+                    <ChevronRight size={15} className="shrink-0 text-slate-400" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </article>
+
+        <article className={`${card} p-5 xl:col-span-3`}>
+          <header className="mb-2 flex items-center gap-2">
+            <Trophy size={18} className="text-[#c9a13b]" />
+            <h2 className="text-base font-bold text-ink">{top ? 'Top department' : 'Needs attention'}</h2>
+          </header>
+          {top ? (
+            <div className="flex items-center justify-center gap-1 py-2">
+              <Laurel />
+              <div className="min-w-0 text-center">
+                <span className="mx-auto mb-2 grid h-14 w-14 place-items-center rounded-full bg-pine text-lg font-bold text-cream ring-4 ring-khaki">
+                  {top.department.split(/\s+/).map((word) => word[0]).join('').slice(0, 2).toUpperCase()}
+                </span>
+                <div className="truncate text-base font-bold text-ink">{top.department}</div>
+                <div className="text-xs text-slate-500">{top.detail} tasks done</div>
+                <div className="mt-1 text-sm font-bold text-[#0a7d0a]">{top.value}% completion</div>
+              </div>
+              <Laurel flip />
+            </div>
+          ) : attention.length === 0 ? <AllClear text="All clear. Nothing is waiting." /> : (
+            <ul className="-mx-2 grid">
+              {attention.slice(0, 4).map((item) => {
+                const row = (
+                  <>
+                    <span className={`h-2 w-2 shrink-0 rounded-full ${item.tone === 'urgent' ? 'bg-[#d03b3b]' : 'bg-[#fab219]'}`} />
+                    <span className="min-w-0 flex-1 truncate text-sm text-ink">{item.label}</span>
+                    <span className="rounded-full bg-cream px-2 py-0.5 text-xs font-semibold text-pine ring-1 ring-khaki">{item.value}</span>
+                  </>
+                );
+                return (
+                  <li key={item.label}>
+                    {canOpen(item.to)
+                      ? <Link to={item.to} className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-canvas">{row}</Link>
+                      : <div className="flex items-center gap-3 px-2 py-2">{row}</div>}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </article>
+
+        <article className={`${card} p-5 lg:col-span-2 xl:col-span-4`}>
+          <h2 className="mb-3 text-base font-bold text-ink">Company notices</h2>
+          {notes.length === 0 ? <AllClear text="No notices yet." /> : (
+            <ul className="-mx-2 grid">
+              {notes.slice(0, 4).map((note, index) => {
+                const target = notificationTarget(note);
+                const row = (
+                  <>
+                    <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-md ${['bg-pine text-cream', 'bg-[#fbe3e3] text-[#b02f2f]', 'bg-[#e3ecf9] text-[#2f5ea8]', 'bg-khaki text-navy'][index % 4]}`}><Bell size={13} /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className={`block truncate text-sm ${note.isRead ? 'text-slate-600' : 'font-semibold text-ink'}`}>{note.title}</span>
+                      <span className="block truncate text-xs text-slate-400">{note.body}</span>
+                    </span>
+                    <span className="shrink-0 text-xs text-slate-400">{timeAgo(note.createdAt)}</span>
+                  </>
+                );
+                return (
+                  <li key={note.id}>
+                    {target && canOpen(target)
+                      ? <Link to={target} className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-canvas">{row}</Link>
+                      : <div className="flex items-center gap-3 px-2 py-2">{row}</div>}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </article>
+      </div>
+    </section>
+  );
+}
+
+const cardClass = 'rounded-2xl border border-line/70 bg-white shadow-[0_2px_10px_rgba(62,60,40,0.06)]';
+
+type StatCard = { label: string; value: string; change: number | null; note: string; icon: LucideIcon; tone: string; to: string; upIsGood?: boolean };
+
+function DashboardHeader({ title, tagline, greetingLine }: { title: string; tagline: string; greetingLine: string }) {
+  return (
+    <header className="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight text-ink sm:text-3xl">{title}</h1>
+        <p className="mt-0.5 text-sm font-medium text-pine">{tagline}</p>
+      </div>
+      <p className="text-sm text-slate-500">{greetingLine}</p>
+    </header>
+  );
+}
+
+function StatCards({ cards, canOpen }: { cards: StatCard[]; canOpen: (path: string) => boolean }) {
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {cards.map((item) => {
+        const body = (
+          <>
+            <span className={`grid h-14 w-14 shrink-0 place-items-center rounded-2xl ${item.tone}`}><item.icon size={26} /></span>
+            <span className="min-w-0">
+              <span className="block truncate text-sm text-slate-500">{item.label}</span>
+              <span className="mt-0.5 block truncate text-2xl font-bold tracking-tight text-ink tabular-nums">{item.value}</span>
+              <Trend change={item.change} note={item.note} upIsGood={item.upIsGood} />
+            </span>
+          </>
+        );
+        return canOpen(item.to)
+          ? <Link key={item.label} to={item.to} className={`${cardClass} flex items-center gap-4 p-5 transition hover:-translate-y-0.5 hover:shadow-[0_10px_28px_rgba(62,60,40,0.12)]`}>{body}</Link>
+          : <article key={item.label} className={`${cardClass} flex items-center gap-4 p-5`}>{body}</article>;
+      })}
+    </div>
+  );
+}
+
+function Banner({ icon: Icon, title, note, action, canOpen }: { icon: LucideIcon; title: string; note: string; action?: { label: string; to: string }; canOpen: (path: string) => boolean }) {
+  return (
+    <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-navy via-pine to-pine px-5 py-5 text-cream shadow-card sm:px-7">
+      <img src="/brand/bajogo-logo-panel.jpg" alt="" className="pointer-events-none absolute inset-y-0 right-0 hidden h-full w-[42%] object-cover opacity-50 [mask-image:linear-gradient(to_right,transparent,black_45%)] md:block" />
+      <div className="relative flex flex-wrap items-center gap-4">
+        <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-cream/15 text-cream ring-1 ring-cream/30"><Icon size={24} /></span>
+        <div className="min-w-0 flex-1">
+          <div className="text-lg font-bold">{title}</div>
+          <div className="text-sm text-khaki">{note}</div>
+        </div>
+        {action && canOpen(action.to) ? (
+          <Link to={action.to} className="relative inline-flex items-center gap-1.5 rounded-full bg-cream px-4 py-2 text-sm font-semibold text-navy hover:bg-khaki">
+            {action.label} <ArrowRight size={15} />
+          </Link>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function ProgressRows({ rows }: { rows: Array<{ label: string; percent: number; detail: string }> }) {
+  return (
+    <ul className="grid gap-3.5">
+      {rows.map((row) => (
+        <li key={row.label} className="grid grid-cols-[minmax(0,6.5rem)_1fr_3rem] items-center gap-3 text-sm">
+          <span className="truncate text-slate-600" title={row.label}>{row.label}</span>
+          <span className="h-3 overflow-hidden rounded-full bg-canvas">
+            <span className="block h-full rounded-full bg-gradient-to-r from-pine to-olive" style={{ width: `${Math.max(4, row.percent)}%` }} />
+          </span>
+          <span className="text-right font-semibold tabular-nums text-ink" title={row.detail}>{row.percent}%</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+const lineDot = (color: string) => ({ r: 4, fill: color, strokeWidth: 0 });
+const legendTop = { verticalAlign: 'top' as const, iconType: 'circle' as const, iconSize: 9, wrapperStyle: { fontSize: 12, color: ink.secondary, paddingBottom: 8 } };
+const sliceColors = [palette.pine, status.waiting, '#d97a5b', palette.olive, palette.navy, palette.khaki];
+
+function FinanceDashboard({ data, money, canOpen, greetingLine }: { data: Data; money: string; canOpen: (path: string) => boolean; greetingLine: string }) {
+  const trend = data.financeTrend ?? [];
+  const month = trend[trend.length - 1];
+  const previous = trend[trend.length - 2];
+  const posted = trend.some((item) => item.income !== 0 || item.expense !== 0);
+  const detail = data.financeDetail;
+  const moneyText = (value: number) => `${money} ${compact(value)}`.trim();
+  const profit = month ? month.income - month.expense : 0;
+
+  const cards: StatCard[] = [
+    { label: 'Total income', value: moneyText(month?.income ?? 0), change: percentChange(month?.income ?? 0, previous?.income), note: 'This month', icon: Coins, tone: 'bg-pine text-cream', to: '/finance/reports' },
+    { label: 'Total expenses', value: moneyText(month?.expense ?? 0), change: percentChange(month?.expense ?? 0, previous?.expense), note: 'This month', icon: TrendingDown, tone: 'bg-[#fbe3e3] text-[#b02f2f]', to: '/finance/reports', upIsGood: false },
+    { label: 'Net profit', value: moneyText(profit), change: previous ? percentChange(profit, previous.income - previous.expense) : null, note: 'Income less expenses', icon: TrendingUp, tone: 'bg-khaki text-navy', to: '/finance/reports' },
+    { label: 'Outstanding receivables', value: moneyText(detail?.receivables ?? 0), change: null, note: `${data.finance?.openReceivables ?? 0} open invoices`, icon: Wallet, tone: 'bg-[#e3ecf9] text-[#2f5ea8]', to: '/finance/reports' },
+  ];
+
+  const expenses = detail?.expenseByDepartment ?? [];
+  const expenseTotal = expenses.reduce((sum, row) => sum + row.amount, 0);
+  const slices = [...expenses.slice(0, 4), ...(expenses.length > 4 ? [{ department: 'Other', amount: expenses.slice(4).reduce((sum, row) => sum + row.amount, 0) }] : [])]
+    .map((row, index) => ({ label: row.department, value: row.amount, share: expenseTotal ? Math.round((row.amount / expenseTotal) * 100) : 0, color: sliceColors[index % sliceColors.length] }));
+
+  const actions = [
+    { label: 'Record payment', to: '/finance/payments', icon: Receipt, tone: 'bg-cream text-pine' },
+    { label: 'Post to ledger', to: '/finance', icon: BookOpen, tone: 'bg-cream text-pine' },
+    { label: 'Budgets', to: '/finance/budgets', icon: Banknote, tone: 'bg-cream text-pine' },
+    { label: 'View reports', to: '/finance/reports', icon: FileText, tone: 'bg-[#e3ecf9] text-[#2f5ea8]' },
+  ].filter((action) => canOpen(action.to));
+
+  return (
+    <section className="mx-auto grid max-w-[1600px] gap-5">
+      <DashboardHeader title="Finance Dashboard" tagline="Financial control, business growth" greetingLine={greetingLine} />
+      <StatCards cards={cards} canOpen={canOpen} />
+
+      <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-12">
+        <article className={`${cardClass} p-5 lg:col-span-2 xl:col-span-5`}>
+          <h2 className="text-base font-bold text-ink">Cash flow</h2>
+          <p className="text-xs text-slate-500">{posted ? `Income and expenses posted each month${money ? `, in ${money}` : ''}` : 'Shows once income and expenses are posted to the ledger.'}</p>
+          <div className="mt-3 h-60">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={trend} barCategoryGap="28%" barGap={4}>
+                <CartesianGrid stroke={ink.grid} vertical={false} />
+                <XAxis dataKey="label" {...axis} />
+                <YAxis width={48} tickFormatter={compact} {...axis} />
+                <Tooltip cursor={{ fill: '#F3F0D2' }} content={<ChartTooltip money={money} />} />
+                <Legend {...legendTop} />
+                <Bar dataKey="income" name="Income" fill={palette.pine} radius={[4, 4, 0, 0]} />
+                <Bar dataKey="expense" name="Expenses" fill={status.waiting} radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </article>
+
+        <article className={`${cardClass} p-5 xl:col-span-4`}>
+          <h2 className="text-base font-bold text-ink">Expense breakdown</h2>
+          <p className="text-xs text-slate-500">{detail?.year ?? new Date().getFullYear()} expenses by department</p>
+          {slices.length === 0 ? <div className="mt-4"><AllClear text="No expenses posted this year." /></div> : (
+            <div className="mt-3 flex flex-wrap items-center gap-4">
+              <div className="relative h-40 w-40 shrink-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={slices} dataKey="value" nameKey="label" innerRadius="70%" outerRadius="100%" startAngle={90} endAngle={-270} stroke="#fff" strokeWidth={2} isAnimationActive={false}>
+                      {slices.map((slice) => <Cell key={slice.label} fill={slice.color} />)}
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="pointer-events-none absolute inset-0 grid place-items-center text-center">
+                  <div>
+                    <div className="text-3xl font-bold tabular-nums text-ink">{slices[0].share}%</div>
+                    <div className="max-w-[6rem] truncate text-xs text-slate-500">{slices[0].label}</div>
+                  </div>
+                </div>
+              </div>
+              <ul className="grid min-w-0 flex-1 gap-2 text-sm">
+                {slices.map((slice) => (
+                  <li key={slice.label} className="flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: slice.color }} />
+                    <span className="truncate text-slate-600">{slice.label}</span>
+                    <span className="ml-auto font-semibold tabular-nums">{slice.share}%</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </article>
+
+        <article className={`${cardClass} p-5 xl:col-span-3`}>
+          <h2 className="mb-3 text-base font-bold text-ink">Quick actions</h2>
+          <div className="grid gap-2.5">
+            {actions.map((action) => (
+              <Link key={action.label} to={action.to} className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold ring-1 ring-khaki/60 transition hover:-translate-y-0.5 hover:shadow-card ${action.tone}`}>
+                <action.icon size={18} /> {action.label}
+              </Link>
+            ))}
+          </div>
+          <dl className="mt-4 grid gap-1 border-t border-line pt-3 text-xs text-slate-500">
+            <div className="flex justify-between"><dt>Payments awaiting approval</dt><dd className="font-semibold text-ink">{data.finance?.pendingPayments ?? 0}</dd></div>
+            <div className="flex justify-between"><dt>Payables outstanding</dt><dd className="font-semibold text-ink">{moneyText(detail?.payables ?? 0)}</dd></div>
+          </dl>
+        </article>
+      </div>
+
+      <Banner icon={Coins} title="Stay on track" note="Monitor your financial performance in real time." action={{ label: 'Financial reports', to: '/finance/reports' }} canOpen={canOpen} />
+    </section>
+  );
+}
+
+function OperationsDashboard({ data, canOpen, greetingLine }: { data: Data; canOpen: (path: string) => boolean; greetingLine: string }) {
+  const detail = data.operationsDetail;
+  const trend = detail?.trend ?? [];
+  const month = trend[trend.length - 1];
+  const previous = trend[trend.length - 2];
+  const cards: StatCard[] = [
+    { label: 'Activities today', value: full(detail?.activitiesToday ?? 0), change: null, note: 'Farm, loading, haulage and more', icon: Leaf, tone: 'bg-pine text-cream', to: '/operations' },
+    { label: 'Activities this month', value: full(month?.activities ?? 0), change: percentChange(month?.activities ?? 0, previous?.activities), note: 'on last month', icon: Wheat, tone: 'bg-[#f6e7c1] text-[#8a5a00]', to: '/operations' },
+    { label: 'Open tasks', value: full(data.operations?.openTasks ?? 0), change: null, note: `${month?.tasksDone ?? 0} completed this month`, icon: Factory, tone: 'bg-[#e3ecf9] text-[#2f5ea8]', to: '/operations' },
+    data.inventory
+      ? { label: 'Low stock items', value: full(data.inventory.belowReorder), change: null, note: 'At or below reorder level', icon: Warehouse, tone: 'bg-khaki text-navy', to: '/inventory' }
+      : { label: 'Open issues', value: full(data.operations?.openIssues ?? 0), change: null, note: `${data.operations?.escalatedIssues ?? 0} escalated`, icon: AlertTriangle, tone: 'bg-khaki text-navy', to: '/operations' },
+  ];
+  const areas = (detail?.areas ?? []).filter((row) => row.total > 0)
+    .map((row) => ({ label: row.area.charAt(0).toUpperCase() + row.area.slice(1), percent: Math.round((row.done / row.total) * 100), detail: `${row.done} of ${row.total} tasks done` }))
+    .sort((a, b) => b.percent - a.percent);
+  const alerts = detail?.alerts ?? [];
+
+  return (
+    <section className="mx-auto grid max-w-[1600px] gap-5">
+      <DashboardHeader title="Operations Dashboard" tagline="Efficient operations, higher output" greetingLine={greetingLine} />
+      <StatCards cards={cards} canOpen={canOpen} />
+
+      <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-12">
+        <article className={`${cardClass} p-5 lg:col-span-2 xl:col-span-5`}>
+          <h2 className="text-base font-bold text-ink">Production trend</h2>
+          <p className="text-xs text-slate-500">Activities recorded and tasks completed, by month</p>
+          <div className="mt-3 h-60">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={trend} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                <CartesianGrid stroke={ink.grid} vertical={false} />
+                <XAxis dataKey="label" {...axis} />
+                <YAxis width={32} allowDecimals={false} {...axis} />
+                <Tooltip content={<ChartTooltip />} />
+                <Legend {...legendTop} />
+                <Line type="monotone" dataKey="activities" name="Activities" stroke={palette.pine} strokeWidth={2.5} dot={lineDot(palette.pine)} />
+                <Line type="monotone" dataKey="tasksDone" name="Tasks completed" stroke={status.waiting} strokeWidth={2.5} dot={lineDot(status.waiting)} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </article>
+
+        <article className={`${cardClass} p-5 xl:col-span-4`}>
+          <h2 className="text-base font-bold text-ink">Area performance</h2>
+          <p className="mb-4 text-xs text-slate-500">Tasks completed by area, last 6 months</p>
+          {areas.length ? <ProgressRows rows={areas.slice(0, 6)} /> : <AllClear text="No tasks recorded yet." />}
+        </article>
+
+        <article className={`${cardClass} p-5 xl:col-span-3`}>
+          <h2 className="mb-3 text-base font-bold text-ink">Operations alerts</h2>
+          {alerts.length === 0 ? <AllClear text="No open issues or low stock." /> : (
+            <ul className="-mx-2 grid">
+              {alerts.slice(0, 5).map((alert) => {
+                const urgent = alert.escalated || alert.severity === 'high';
+                const to = alert.kind === 'stock' ? '/inventory' : '/operations';
+                const row = (
+                  <>
+                    <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full ${urgent ? 'bg-[#fbe3e3] text-[#b02f2f]' : 'bg-[#fdf1d6] text-[#a26a00]'}`}><AlertTriangle size={16} /></span>
+                    <span className="min-w-0 flex-1 truncate text-sm text-ink">{alert.title}</span>
+                    {alert.escalated ? <span className="shrink-0 rounded-full bg-[#fbe3e3] px-2 py-0.5 text-[10px] font-bold uppercase text-[#b02f2f]">Escalated</span> : null}
+                  </>
+                );
+                return (
+                  <li key={`${alert.kind}-${alert.title}`}>
+                    {canOpen(to) ? <Link to={to} className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-canvas">{row}</Link> : <div className="flex items-center gap-3 px-2 py-2">{row}</div>}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </article>
+      </div>
+
+      <Banner icon={Leaf} title="Healthy farms, bountiful harvests" note="Our operations today secure our tomorrow." action={{ label: 'Daily operations', to: '/operations' }} canOpen={canOpen} />
+    </section>
+  );
+}
+
+function HrDashboard({ data, canOpen, notes, greetingLine }: { data: Data; canOpen: (path: string) => boolean; notes: Notification[]; greetingLine: string }) {
+  const detail = data.hrDetail;
+  const attendance = detail?.attendance ?? [];
+  const today = attendance[attendance.length - 1];
+  const employees = data.employees?.active ?? data.headcount ?? 0;
+  const headcount = [...(data.headcountByDepartment ?? [])].filter((row) => row.headcount > 0).sort((a, b) => b.headcount - a.headcount).slice(0, 6);
+  const cards: StatCard[] = [
+    { label: 'Total employees', value: full(employees), change: null, note: data.employees ? `${data.employees.probation} on probation` : 'Active staff', icon: Users, tone: 'bg-pine text-cream', to: canOpen('/employees') ? '/employees' : '/hr/reports' },
+    { label: 'Present today', value: full(today?.present ?? 0), change: null, note: `${today?.absent ?? 0} marked absent`, icon: UserCheck, tone: 'bg-[#e3f3e3] text-[#0a7d0a]', to: '/hr/attendance' },
+    { label: 'On leave today', value: full(data.hr?.onLeaveToday ?? 0), change: null, note: `${data.hr?.pendingLeave ?? 0} requests waiting`, icon: CalendarDays, tone: 'bg-[#f6e7c1] text-[#8a5a00]', to: '/hr' },
+    { label: 'Departments', value: full(data.departments ?? (data.headcountByDepartment ?? []).length), change: null, note: data.positions != null ? `${data.positions} positions` : 'Active departments', icon: Network, tone: 'bg-[#ece4f7] text-[#6b46a8]', to: '/organisation/departments' },
+    { label: 'Open vacancies', value: full(data.hr?.openVacancies ?? 0), change: null, note: 'Recruitment', icon: UserPlus, tone: 'bg-[#e3ecf9] text-[#2f5ea8]', to: '/hr/recruitment' },
+    { label: 'Leave requests', value: full(data.hr?.pendingLeave ?? 0), change: null, note: 'Awaiting approval', icon: CalendarClock, tone: 'bg-[#fbe3e3] text-[#b02f2f]', to: '/hr' },
+    { label: 'Hired this year', value: full(detail?.hiredThisYear ?? 0), change: null, note: `Since 1 January ${new Date().getFullYear()}`, icon: Megaphone, tone: 'bg-khaki text-navy', to: '/hr/lifecycle' },
+    { label: 'Exited', value: full(data.employees?.exited ?? 0), change: null, note: 'All time', icon: Send, tone: 'bg-navy text-khaki', to: '/hr/lifecycle' },
+  ];
+
+  return (
+    <section className="mx-auto grid max-w-[1600px] gap-5">
+      <DashboardHeader title="HR Dashboard" tagline="Our people, our strength" greetingLine={greetingLine} />
+      <StatCards cards={cards} canOpen={canOpen} />
+
+      <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-12">
+        <article className={`${cardClass} p-5 lg:col-span-2 xl:col-span-5`}>
+          <h2 className="text-base font-bold text-ink">Attendance trend</h2>
+          <p className="text-xs text-slate-500">Staff marked present and absent, last 7 days</p>
+          <div className="mt-3 h-60">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={attendance} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                <CartesianGrid stroke={ink.grid} vertical={false} />
+                <XAxis dataKey="label" {...axis} />
+                <YAxis width={32} allowDecimals={false} {...axis} />
+                <Tooltip content={<ChartTooltip />} />
+                <Legend {...legendTop} />
+                <Line type="monotone" dataKey="present" name="Present" stroke={palette.pine} strokeWidth={2.5} dot={lineDot(palette.pine)} />
+                <Line type="monotone" dataKey="absent" name="Absent" stroke={status.waiting} strokeWidth={2.5} dot={lineDot(status.waiting)} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </article>
+
+        <article className={`${cardClass} p-5 xl:col-span-4`}>
+          <h2 className="text-base font-bold text-ink">Department overview</h2>
+          <p className="text-xs text-slate-500">Employees by main department</p>
+          {headcount.length === 0 ? <div className="mt-4"><AllClear text="No staff assigned to departments yet." /></div> : (
+            <div className="mt-3 h-60">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={headcount} margin={{ top: 22, right: 4, left: 4, bottom: 0 }} barCategoryGap="22%">
+                  <XAxis dataKey="department" interval={0} tickFormatter={(value: string) => (value.length > 9 ? `${value.slice(0, 8)}…` : value)} {...axis} />
+                  <Tooltip cursor={{ fill: '#F3F0D2' }} content={<ChartTooltip />} />
+                  <Bar dataKey="headcount" name="Employees" radius={[6, 6, 0, 0]}>
+                    {headcount.map((row, index) => <Cell key={row.department} fill={sliceColors[index % sliceColors.length]} />)}
+                    <LabelList dataKey="headcount" position="top" style={{ fontSize: 12, fontWeight: 700, fill: ink.primary }} />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </article>
+
+        <article className={`${cardClass} p-5 xl:col-span-3`}>
+          <h2 className="mb-3 text-base font-bold text-ink">Recent activities</h2>
+          {notes.length === 0 ? <AllClear text="No recent activity." /> : (
+            <ul className="-mx-2 grid">
+              {notes.slice(0, 5).map((note, index) => {
+                const target = notificationTarget(note);
+                const row = (
+                  <>
+                    <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full ${['bg-[#e3ecf9] text-[#2f5ea8]', 'bg-[#e3f3e3] text-[#0a7d0a]', 'bg-[#fdf1d6] text-[#a26a00]', 'bg-[#fbe3e3] text-[#b02f2f]'][index % 4]}`}><Bell size={14} /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className={`block truncate text-sm ${note.isRead ? 'text-slate-600' : 'font-semibold text-ink'}`}>{note.title}</span>
+                      <span className="block text-xs text-slate-400">{timeAgo(note.createdAt)}</span>
+                    </span>
+                  </>
+                );
+                return (
+                  <li key={note.id}>
+                    {target && canOpen(target) ? <Link to={target} className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-canvas">{row}</Link> : <div className="flex items-center gap-3 px-2 py-2">{row}</div>}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </article>
+      </div>
+
+      <Banner icon={Megaphone} title="Welcome to BAJOGO ERP" note="Together we grow, together we prosper." action={{ label: 'View all staff', to: canOpen('/employees') ? '/employees' : '/hr/reports' }} canOpen={canOpen} />
+    </section>
   );
 }

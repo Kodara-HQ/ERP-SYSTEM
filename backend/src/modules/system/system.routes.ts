@@ -156,6 +156,191 @@ export async function approvalTrend(months: number) {
   return buckets.map((bucket) => ({ ...bucket, approvedAmount: Number(bucket.approvedAmount.toFixed(2)) }));
 }
 
+/** Posted income and expense for the last `months` calendar months, this month included, from the ledger. */
+export async function financeTrend(months: number) {
+  const now = new Date();
+  const buckets = Array.from({ length: months }, (_, index) => {
+    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1 - index), 1));
+    const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+    return { month: key, label: `${monthNames[date.getUTCMonth()]} ${String(date.getUTCFullYear()).slice(2)}`, incomeCents: 0, expenseCents: 0 };
+  });
+  const rows = await query<RowDataPacket[]>(
+    pool,
+    `SELECT j.journal_date, a.account_type, l.debit, l.credit
+     FROM journal_lines l
+     JOIN journals j ON j.id = l.journal_id
+     JOIN ledger_accounts a ON a.id = l.ledger_account_id
+     WHERE a.account_type IN ('income', 'expense') AND j.journal_date >= ?`,
+    [`${buckets[0].month}-01`],
+  );
+  const cents = (value: unknown) => Math.round(Number(value ?? 0) * 100);
+  for (const row of rows) {
+    const date = row.journal_date instanceof Date ? row.journal_date : new Date(String(row.journal_date));
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    const bucket = buckets.find((item) => item.month === key);
+    if (!bucket) continue;
+    if (row.account_type === 'income') bucket.incomeCents += cents(row.credit) - cents(row.debit);
+    else bucket.expenseCents += cents(row.debit) - cents(row.credit);
+  }
+  return buckets.map((bucket) => ({ month: bucket.month, label: bucket.label, income: bucket.incomeCents / 100, expense: bucket.expenseCents / 100 }));
+}
+
+/** Approved budgets for this calendar year against the expenses posted to those budget lines so far. */
+async function budgetUse() {
+  const year = new Date().getFullYear();
+  const rows = await query<RowDataPacket[]>(
+    pool,
+    `SELECT b.amount,
+            COALESCE((
+              SELECT SUM(l.debit - l.credit) FROM journal_lines l
+              JOIN journals j ON j.id = l.journal_id
+              WHERE l.ledger_account_id = b.ledger_account_id AND l.department_id = b.department_id
+                AND j.journal_date BETWEEN ? AND ?
+            ), 0) AS actual
+     FROM budgets b WHERE b.status = 'approved' AND b.budget_year = ?`,
+    [`${year}-01-01`, `${year}-12-31`, year],
+  );
+  return {
+    year,
+    budget: Number(rows.reduce((sum, row) => sum + Number(row.amount), 0).toFixed(2)),
+    spent: Number(rows.reduce((sum, row) => sum + Number(row.actual), 0).toFixed(2)),
+  };
+}
+
+function lastMonths(months: number) {
+  const now = new Date();
+  return Array.from({ length: months }, (_, index) => {
+    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1 - index), 1));
+    return { month: `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`, label: `${monthNames[date.getUTCMonth()]} ${String(date.getUTCFullYear()).slice(2)}` };
+  });
+}
+
+function monthKey(value: unknown): string {
+  const date = value instanceof Date ? value : new Date(String(value));
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function dayKey(value: unknown): string {
+  const date = value instanceof Date ? value : new Date(String(value));
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+/** Outstanding money and this year's expenses by department, for the finance dashboard. */
+async function financeDetail() {
+  const year = new Date().getFullYear();
+  const receivables = await query<RowDataPacket[]>(pool, `SELECT COALESCE(SUM(outstanding), 0) AS total FROM customer_invoices WHERE status = 'open'`);
+  const payables = await query<RowDataPacket[]>(pool, `SELECT COALESCE(SUM(outstanding), 0) AS total FROM supplier_invoices WHERE journal_id IS NOT NULL`);
+  const rows = await query<RowDataPacket[]>(
+    pool,
+    `SELECT d.name AS department, l.debit, l.credit
+     FROM journal_lines l
+     JOIN journals j ON j.id = l.journal_id
+     JOIN ledger_accounts a ON a.id = l.ledger_account_id
+     LEFT JOIN departments d ON d.id = l.department_id
+     WHERE a.account_type = 'expense' AND j.journal_date BETWEEN ? AND ?`,
+    [`${year}-01-01`, `${year}-12-31`],
+  );
+  const byDepartment = new Map<string, number>();
+  for (const row of rows) {
+    const name = row.department ? String(row.department) : 'Company-wide';
+    byDepartment.set(name, (byDepartment.get(name) ?? 0) + Math.round(Number(row.debit) * 100) - Math.round(Number(row.credit) * 100));
+  }
+  return {
+    year,
+    receivables: Number(Number(receivables[0]?.total ?? 0).toFixed(2)),
+    payables: Number(Number(payables[0]?.total ?? 0).toFixed(2)),
+    expenseByDepartment: [...byDepartment.entries()]
+      .map(([department, total]) => ({ department, amount: total / 100 }))
+      .filter((row) => row.amount > 0)
+      .sort((a, b) => b.amount - a.amount),
+  };
+}
+
+/** Recorded activities and completed tasks by month, task completion by area, and what needs attention. */
+async function operationsDetail() {
+  const buckets = lastMonths(6).map((bucket) => ({ ...bucket, activities: 0, tasksDone: 0 }));
+  const start = `${buckets[0].month}-01`;
+  const activities = await query<RowDataPacket[]>(pool, 'SELECT activity_date, area FROM operational_activities WHERE activity_date >= ?', [start]);
+  const tasks = await query<RowDataPacket[]>(pool, 'SELECT area, status, created_at FROM operational_tasks WHERE created_at >= ?', [start]);
+  for (const row of activities) {
+    const bucket = buckets.find((item) => item.month === monthKey(row.activity_date));
+    if (bucket) bucket.activities += 1;
+  }
+  const areas = new Map<string, { total: number; done: number }>();
+  for (const row of tasks) {
+    const area = String(row.area);
+    const entry = areas.get(area) ?? { total: 0, done: 0 };
+    entry.total += 1;
+    if (row.status === 'done') {
+      entry.done += 1;
+      const bucket = buckets.find((item) => item.month === monthKey(row.created_at));
+      if (bucket) bucket.tasksDone += 1;
+    }
+    areas.set(area, entry);
+  }
+  const todayKey = dayKey(new Date());
+  const issues = await query<RowDataPacket[]>(
+    pool,
+    `SELECT id, title, severity, escalated FROM operational_issues WHERE status <> 'resolved'
+     ORDER BY escalated DESC, CASE severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END, created_at DESC LIMIT 4`,
+  );
+  const lowStock = await query<RowDataPacket[]>(
+    pool,
+    `SELECT i.name FROM stock_items i
+     WHERE i.status = 'active' AND i.reorder_level > 0
+       AND (SELECT COALESCE(SUM(b.quantity), 0) FROM stock_balances b WHERE b.item_id = i.id) <= i.reorder_level
+     ORDER BY i.name LIMIT 3`,
+  );
+  return {
+    activitiesToday: activities.filter((row) => dayKey(row.activity_date) === todayKey).length,
+    activitiesThisMonth: buckets[buckets.length - 1].activities,
+    trend: buckets,
+    areas: [...areas.entries()].map(([area, entry]) => ({ area, ...entry })),
+    alerts: [
+      ...issues.map((row) => ({ kind: 'issue', title: String(row.title), severity: String(row.severity), escalated: Boolean(Number(row.escalated)) })),
+      ...lowStock.map((row) => ({ kind: 'stock', title: `Low stock: ${String(row.name)}`, severity: 'medium', escalated: false })),
+    ],
+  };
+}
+
+/** Attendance marked present and absent for each of the last seven days, and new hires this year. */
+async function hrDetail() {
+  const days = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date();
+    date.setDate(date.getDate() - (6 - index));
+    return { day: dayKey(date), label: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][date.getDay()], present: 0, absent: 0 };
+  });
+  const rows = await query<RowDataPacket[]>(pool, 'SELECT work_date, attendance_status FROM attendance_records WHERE work_date >= ?', [days[0].day]);
+  for (const row of rows) {
+    const bucket = days.find((item) => item.day === dayKey(row.work_date));
+    if (!bucket) continue;
+    if (row.attendance_status === 'present') bucket.present += 1;
+    if (row.attendance_status === 'absent') bucket.absent += 1;
+  }
+  const year = new Date().getFullYear();
+  return {
+    attendance: days,
+    hiredThisYear: await scalar(pool, `SELECT COUNT(*) FROM employees WHERE deleted_at IS NULL AND hire_date >= ?`, [`${year}-01-01`]),
+  };
+}
+
+/** Operational tasks per department over the last 90 days: how many there were and how many are done. */
+async function departmentTasks() {
+  const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const rows = await query<RowDataPacket[]>(
+    pool,
+    `SELECT d.name AS department,
+            COUNT(t.id) AS total,
+            SUM(CASE WHEN t.status = 'done' THEN 1 ELSE 0 END) AS done
+     FROM operational_tasks t
+     JOIN departments d ON d.id = t.department_id
+     WHERE t.created_at >= ?
+     GROUP BY d.id, d.name`,
+    [since],
+  );
+  return rows.map((row) => ({ department: String(row.department), total: Number(row.total), done: Number(row.done ?? 0) }));
+}
+
 export const dashboardRouter = Router();
 dashboardRouter.use(requireAuth, requirePermission('dashboard.view'));
 
@@ -267,6 +452,7 @@ dashboardRouter.get('/summary', asyncRoute(async (req, res) => {
       summary.headcountByDepartment = headcount.map((item) => ({ department: String(item.department), headcount: Number(item.headcount) }));
       summary.headcount = headcount.reduce((sum, item) => sum + Number(item.headcount), 0);
     }
+    summary.hrDetail = await hrDetail();
   }
   if (hasPermission(auth, 'leave.apply') && auth.employeeId) {
     summary.myLeave = await scalar(
@@ -308,6 +494,8 @@ dashboardRouter.get('/summary', asyncRoute(async (req, res) => {
       openPayables: await scalar(pool, `SELECT COUNT(*) FROM supplier_invoices WHERE journal_id IS NOT NULL AND outstanding > 0`),
       openReceivables: await scalar(pool, `SELECT COUNT(*) FROM customer_invoices WHERE status = 'open' AND outstanding > 0`),
     };
+    summary.financeTrend = await financeTrend(6);
+    summary.financeDetail = await financeDetail();
   }
   if (hasPermission(auth, 'payroll.view') || hasPermission(auth, 'payroll.manage') || hasPermission(auth, 'payroll.verify') || hasPermission(auth, 'payroll.pay')) {
     summary.payroll = {
@@ -334,6 +522,7 @@ dashboardRouter.get('/summary', asyncRoute(async (req, res) => {
       openIssues: await scalar(pool, `SELECT COUNT(*) FROM operational_issues WHERE status <> 'resolved'`),
       escalatedIssues: await scalar(pool, `SELECT COUNT(*) FROM operational_issues WHERE escalated = 1 AND status <> 'resolved'`),
     };
+    summary.operationsDetail = await operationsDetail();
   }
   if (hasPermission(auth, 'executive.review')) {
     summary.executive = {
@@ -343,6 +532,13 @@ dashboardRouter.get('/summary', asyncRoute(async (req, res) => {
         + await scalar(pool, `SELECT COUNT(*) FROM legal_documents WHERE status = 'awaiting_ceo'`),
     };
     summary.approvalTrend = await approvalTrend(6);
+    summary.departmentTasks = await departmentTasks();
+    if (hasPermission(auth, 'finance.view')) {
+      summary.financeTrend ??= await financeTrend(6);
+      summary.budgetUse = await budgetUse();
+    }
+  }
+  if (summary.executive || summary.finance) {
     const company = await query<RowDataPacket[]>(pool, 'SELECT currency_code FROM companies ORDER BY id LIMIT 1');
     summary.currencyCode = company[0]?.currency_code ? String(company[0].currency_code) : '';
   }

@@ -5,7 +5,8 @@ import { execute, query, queryOne, scalar, withTransaction, type Db } from '../.
 import { requestMeta, writeAudit } from '../../services/auditService';
 import { assertSalaryAccess, insertCompensation } from '../payroll/payroll.service';
 import { hasPermission } from '../../services/access';
-import { departmentClause, recordVisibility } from '../../services/visibility';
+import { departmentClause } from '../../services/visibility';
+import { personnelVisibility } from '../../services/workspaces';
 import { nextReference, requireCompanyId } from '../../services/companyContext';
 import type { AuthContext } from '../../types/auth';
 import { HttpError, notFound } from '../../utils/httpError';
@@ -170,7 +171,7 @@ const employeeColumns = `
 `;
 
 async function scopeClause(auth: AuthContext): Promise<{ sql: string; params: unknown[] }> {
-  const visibility = await recordVisibility(auth);
+  const visibility = await personnelVisibility(auth);
   if (visibility.companyWide) return { sql: '1 = 1', params: [] };
   const department = departmentClause(visibility, 'ea.department_id');
   if (visibility.employeeId) {
@@ -234,7 +235,7 @@ async function ensureVisible(auth: AuthContext, row: RowDataPacket): Promise<voi
   if (!hasPermission(auth, 'employees.view')) {
     throw notFound('Employee');
   }
-  const visibility = await recordVisibility(auth);
+  const visibility = await personnelVisibility(auth);
   let departmentId = row.department_id == null ? null : Number(row.department_id);
   if (departmentId == null) {
     const last = await queryOne<RowDataPacket>(

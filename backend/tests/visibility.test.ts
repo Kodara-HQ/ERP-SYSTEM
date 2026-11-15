@@ -106,7 +106,8 @@ describe('department visibility', () => {
     const clerkPeople = await request(app).get('/api/v1/employees').set(auth(clerk));
     expect(clerkPeople.status).toBe(403);
     const hrPeople = await request(app).get('/api/v1/employees').set(auth(hr));
-    expect(hrPeople.body.data).toHaveLength(0);
+    // Personnel records are an HR function across the company, so HR sees every employee it registered.
+    expect(hrPeople.body.data).toHaveLength(3);
     const adminPeople = await request(app).get('/api/v1/employees').set(auth(admin));
     expect(adminPeople.body.data).toHaveLength(3);
 
@@ -132,14 +133,16 @@ describe('department visibility', () => {
     const accountsDash = await request(app).get('/api/v1/dashboard/summary').set(auth(accounts));
     expect(accountsDash.body.data.departments).toBeUndefined();
     expect(accountsDash.body.data.positions).toBeUndefined();
-    expect(accountsDash.body.data.finance).toBeUndefined();
+    // Not yet placed in a department, the finance manager works in the finance workspace of their role only.
+    expect(accountsDash.body.data.finance).toBeDefined();
     expect(accountsDash.body.data.procurement).toBeUndefined();
     const adminDash = await request(app).get('/api/v1/dashboard/summary').set(auth(admin));
     expect(adminDash.body.data.departments).toBe(3);
     expect(adminDash.body.data.positions).toBeGreaterThan(0);
 
-    const blockedBooks = await request(app).get('/api/v1/finance/journals').set(auth(accounts));
-    expect(blockedBooks.status).toBe(403);
+    const homeBooks = await request(app).get('/api/v1/finance/journals').set(auth(accounts));
+    expect(homeBooks.status).toBe(200);
+    expect((await request(app).get('/api/v1/procurement/requisitions').set(auth(accounts))).status).toBe(403);
     await hire(hr, admin, accountsId, { firstName: 'Test', lastName: 'Accounts', ...place, departmentId: finance.body.data.id, positionId: financePosition.body.data.id });
     const books = await request(app).get('/api/v1/finance/journals').set(auth(accounts));
     expect(books.status).toBe(200);

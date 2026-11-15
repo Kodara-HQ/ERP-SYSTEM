@@ -9,7 +9,7 @@ import { validate } from '../../middleware/validate';
 import { approvalSummary } from '../approvals/approval.service';
 import { hasPermission } from '../../services/access';
 import { branchClause, departmentClause, recordVisibility, transactionClause } from '../../services/visibility';
-import { requireWorkspace, workspaceAllows, workspaceGate } from '../../services/workspaces';
+import { personnelVisibility, requireWorkspace, workspaceAllows, workspaceGate } from '../../services/workspaces';
 import { HttpError } from '../../utils/httpError';
 
 const auditQuery = z.object({
@@ -347,10 +347,11 @@ dashboardRouter.use(requireAuth, requirePermission('dashboard.view'));
 dashboardRouter.get('/summary', asyncRoute(async (req, res) => {
   const auth = req.auth!;
   const visibility = await recordVisibility(auth);
+  const personnel = await personnelVisibility(auth);
   const gate = await workspaceGate(auth);
   const summary: Record<string, unknown> = {};
   if (hasPermission(auth, 'employees.view') && workspaceAllows(gate, 'people')) {
-    const people = departmentClause(visibility, 'ea.department_id');
+    const people = departmentClause(personnel, 'ea.department_id');
     const confidential = hasPermission(auth, 'employees.view_confidential') ? '' : `AND e.confidentiality_level = 'standard'`;
     const row = await query<RowDataPacket[]>(
       pool,
@@ -369,7 +370,7 @@ dashboardRouter.get('/summary', asyncRoute(async (req, res) => {
       exited: Number(row[0]?.exited ?? 0),
     };
     if (hasPermission(auth, 'departments.view')) {
-      const departments = departmentClause(visibility, 'd.id');
+      const departments = departmentClause(personnel, 'd.id');
       const headcount = await query<RowDataPacket[]>(
         pool,
         `SELECT d.name AS department, COUNT(ea.id) AS headcount
@@ -431,13 +432,13 @@ dashboardRouter.get('/summary', asyncRoute(async (req, res) => {
         pool,
         `SELECT COUNT(*) FROM leave_requests lr
          LEFT JOIN employee_assignments ea ON ea.employee_id = lr.employee_id AND ea.is_primary = 1 AND ea.end_date IS NULL
-         WHERE lr.status = 'submitted' AND ${transactionClause(visibility, { department: 'ea.department_id', employee: 'lr.employee_id', user: 'lr.created_by' }).sql}`,
-        transactionClause(visibility, { department: 'ea.department_id', employee: 'lr.employee_id', user: 'lr.created_by' }).params,
+         WHERE lr.status = 'submitted' AND ${transactionClause(personnel, { department: 'ea.department_id', employee: 'lr.employee_id', user: 'lr.created_by' }).sql}`,
+        transactionClause(personnel, { department: 'ea.department_id', employee: 'lr.employee_id', user: 'lr.created_by' }).params,
       ),
     };
     // HR readers who cannot open employee records (the CEO) still get the headcount HR reports already show them.
     if (!summary.employees) {
-      const departments = departmentClause(visibility, 'd.id');
+      const departments = departmentClause(personnel, 'd.id');
       const headcount = await query<RowDataPacket[]>(
         pool,
         `SELECT d.name AS department, COUNT(e.id) AS headcount

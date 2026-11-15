@@ -304,6 +304,35 @@ describe('departmental confidentiality', () => {
   });
 });
 
+describe('accounts not yet linked to an employee', () => {
+  it('lets a new HR Manager set up the company and see every employee, without opening other departments', async () => {
+    await seedOrganisation();
+    await createAccount('newhr', 'HR_MANAGER');
+    await createAccount('newops', 'OPERATIONS_MANAGER');
+    const hr = await login(app, 'newhr');
+    const ops = await login(app, 'newops');
+    const me = await request(app).get('/api/v1/auth/me').set(auth(hr));
+    expect(me.body.data.workspaces).toEqual(expect.arrayContaining(['hr', 'people']));
+    expect(me.body.data.workspaces).not.toContain('finance');
+    const company = await queryOne<RowDataPacket>(pool, 'SELECT id FROM companies ORDER BY id LIMIT 1');
+    const branch = await execute(pool, `INSERT INTO branches (company_id, code, name, status) VALUES (?, 'HQ', 'Head Office', 'active')`, [company!.id]);
+    const ops_dept = await queryOne<RowDataPacket>(pool, `SELECT id FROM departments WHERE code = 'OPS-HAUL'`);
+    const driver = await queryOne<RowDataPacket>(pool, `SELECT id FROM positions WHERE code = 'DRIVER'`);
+    const created = await request(app).post('/api/v1/employees').set(auth(hr)).send({
+      firstName: 'Kwame', lastName: 'Driver', employmentType: 'permanent',
+      departmentId: ops_dept!.id, positionId: driver!.id, branchId: branch.insertId, assignmentStartDate: '2026-11-01',
+    });
+    expect(created.status).toBe(201);
+    const list = await request(app).get('/api/v1/employees').set(auth(hr));
+    expect(list.body.data.map((row: { lastName: string }) => row.lastName)).toContain('Driver');
+    const dashboard = await request(app).get('/api/v1/dashboard/summary').set(auth(hr));
+    expect(dashboard.body.data.hr).toBeDefined();
+    expect(dashboard.body.data.finance).toBeUndefined();
+    expect((await request(app).get('/api/v1/finance/journals').set(auth(hr))).status).toBe(403);
+    expect((await request(app).get('/api/v1/employees').set(auth(ops))).status).toBe(403);
+  });
+});
+
 describe('accountability and reporting', () => {
   it('routes staff reports to their manager and departmental reports to the CEO', async () => {
     const { t } = await company();

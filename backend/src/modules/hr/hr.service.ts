@@ -5,7 +5,8 @@ import { createRequest, resubmitRequest } from '../approvals/approval.service';
 import { onApprovalChange, type ApprovalChange } from '../approvals/approval.hooks';
 import { writeAudit } from '../../services/auditService';
 import { hasPermission } from '../../services/access';
-import { departmentClause, recordVisibility, transactionClause } from '../../services/visibility';
+import { departmentClause, transactionClause } from '../../services/visibility';
+import { personnelVisibility } from '../../services/workspaces';
 import { requireCompanyId } from '../../services/companyContext';
 import { createEmployee, transferEmployee, updateEmployee } from '../employees/employees.service';
 import type { AuthContext } from '../../types/auth';
@@ -42,7 +43,7 @@ async function primaryAssignment(db: Db, employeeId: number) {
 
 async function assertEmployeeAccess(auth: AuthContext, employeeId: number, manage = false): Promise<void> {
   if (auth.employeeId === employeeId && !manage) return;
-  const visibility = await recordVisibility(auth);
+  const visibility = await personnelVisibility(auth);
   const assignment = await queryOne<RowDataPacket>(
     pool,
     'SELECT department_id FROM employee_assignments WHERE employee_id = ? AND is_primary = 1 AND end_date IS NULL',
@@ -110,7 +111,7 @@ const leaveFrom = `
 export async function listLeave(auth: AuthContext, employeeId?: number) {
   const where = ['1 = 1'];
   const params: unknown[] = [];
-  const visibility = await recordVisibility(auth);
+  const visibility = await personnelVisibility(auth);
   if (!visibility.companyWide || !hasPermission(auth, 'hr.view')) {
     const scope = transactionClause(visibility, { department: 'ea.department_id', employee: 'lr.employee_id', user: 'lr.created_by' });
     where.push(scope.sql);
@@ -138,7 +139,7 @@ export async function leaveBalances(auth: AuthContext, employeeId?: number) {
     throw new HttpError(403, 'You do not have access to this employee record.', 'HR_SCOPE_DENIED');
   }
   if (target !== auth.employeeId) {
-    const visibility = await recordVisibility(auth);
+    const visibility = await personnelVisibility(auth);
     if (!visibility.companyWide) {
       const assignment = await queryOne<RowDataPacket>(
         pool,
@@ -356,7 +357,7 @@ export async function checkInSelf(auth: AuthContext, actor: Actor) {
 export async function listAttendance(auth: AuthContext, filters: { from?: string; to?: string; employeeId?: number }) {
   const where = ['1 = 1'];
   const params: unknown[] = [];
-  const visibility = await recordVisibility(auth);
+  const visibility = await personnelVisibility(auth);
   if (!visibility.companyWide || !hasPermission(auth, 'hr.view')) {
     const scope = transactionClause(visibility, { department: 'ea.department_id', employee: 'a.employee_id' });
     where.push(scope.sql);
@@ -411,7 +412,7 @@ function mapVacancy(row: RowDataPacket) {
 }
 
 export async function listVacancies(auth: AuthContext) {
-  const visibility = await recordVisibility(auth);
+  const visibility = await personnelVisibility(auth);
   const scope = departmentClause(visibility, 'v.department_id');
   const rows = await query<RowDataPacket[]>(
     pool,
@@ -663,7 +664,7 @@ export async function employeeLifecycle(auth: AuthContext, employeeId: number) {
 }
 
 export async function hrSummary(auth: AuthContext, from: string, to: string) {
-  const visibility = await recordVisibility(auth);
+  const visibility = await personnelVisibility(auth);
   const departments = departmentClause(visibility, 'd.id');
   const people = departmentClause(visibility, 'ea.department_id');
   const openRoles = departmentClause(visibility, 'v.department_id');
@@ -723,7 +724,7 @@ export async function getDiscipline(auth: AuthContext, id: number) {
     'SELECT department_id FROM employee_assignments WHERE employee_id = ? AND is_primary = 1 AND end_date IS NULL',
     [row.employee_id],
   );
-  const visibility = await recordVisibility(auth);
+  const visibility = await personnelVisibility(auth);
   const departmentId = assignment?.department_id == null ? null : Number(assignment.department_id);
   if (!visibility.companyWide && (departmentId == null || !visibility.departmentIds.includes(departmentId))) {
     throw notFound('Disciplinary record');

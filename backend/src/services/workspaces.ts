@@ -2,8 +2,8 @@ import type { NextFunction, Request, Response } from 'express';
 import type { RowDataPacket } from '../database/rows';
 import { pool } from '../database/pool';
 import { query, scalar } from '../database/query';
-import { hasFinalBusinessAuthority, isTechnicalAdmin } from './access';
-import { recordVisibility } from './visibility';
+import { hasFinalBusinessAuthority, hasPermission, isTechnicalAdmin } from './access';
+import { recordVisibility, type RecordVisibility } from './visibility';
 import type { AuthContext } from '../types/auth';
 import { HttpError } from '../utils/httpError';
 
@@ -23,11 +23,11 @@ export async function workspaceGate(auth: AuthContext): Promise<WorkspaceGate> {
     return { mode: 'listed', codes: [...technicalWorkspaces] };
   }
   if (!auth.employeeId) {
-    return { mode: 'listed', codes: [] };
+    return roleHome(auth);
   }
   const visibility = await recordVisibility(auth);
   if (visibility.departmentIds.length === 0) {
-    return { mode: 'listed', codes: [] };
+    return roleHome(auth);
   }
   const marks = visibility.departmentIds.map(() => '?').join(', ');
   const configured = await scalar(
@@ -44,6 +44,48 @@ export async function workspaceGate(auth: AuthContext): Promise<WorkspaceGate> {
     visibility.departmentIds,
   );
   return { mode: 'listed', codes: rows.map((row) => String(row.workspace_code)) };
+}
+
+/**
+ * The home department of each business role. An account that is not yet linked to an employee with a
+ * department (for example an HR Manager setting up the company before any employee is registered) works
+ * in its role's own department workspaces. Permissions still apply, so this never opens another
+ * department's records.
+ */
+export const roleHomeWorkspaces: Record<string, string[]> = {
+  HR_MANAGER: ['hr', 'people'],
+  HR_OFFICER: ['hr', 'people'],
+  OPERATIONS_MANAGER: ['operations', 'procurement', 'inventory', 'people'],
+  ACCOUNTS_OFFICER: ['finance', 'people'],
+  ACCOUNTS_CLERK: ['finance'],
+  LEGAL_AFFAIRS: ['legal', 'people'],
+  IT_MARKETING_MANAGER: ['it', 'marketing', 'people'],
+  IT_OFFICER: ['it'],
+  MARKETING_OFFICER: ['marketing'],
+  PROCUREMENT_OFFICER: ['procurement'],
+  PURCHASE_CLERK: ['procurement'],
+  STOREKEEPER: ['inventory'],
+};
+
+function roleHome(auth: AuthContext): WorkspaceGate {
+  const codes = new Set<string>();
+  for (const grant of auth.grants) {
+    for (const code of roleHomeWorkspaces[grant.roleCode] ?? []) codes.add(code);
+  }
+  return { mode: 'listed', codes: [...codes] };
+}
+
+/**
+ * Personnel records are an HR function across the whole company. Someone who manages HR in the HR
+ * workspace sees every employee; everyone else keeps their normal department boundary.
+ */
+export async function personnelVisibility(auth: AuthContext): Promise<RecordVisibility> {
+  const visibility = await recordVisibility(auth);
+  if (visibility.companyWide || isTechnicalAdmin(auth)) return visibility;
+  if (hasPermission(auth, 'hr.manage') && workspaceAllows(await workspaceGate(auth), 'hr')) {
+    return { ...visibility, companyWide: true };
+  }
+  return visibility;
 }
 
 export function workspaceAllows(gate: WorkspaceGate, code: string): boolean {

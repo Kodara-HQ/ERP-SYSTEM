@@ -147,7 +147,8 @@ export function AttendancePage() {
   const client = useQueryClient();
   const [error, setError] = useState('');
   const rows = useQuery({ queryKey: ['attendance'], queryFn: () => api<{ data: AttendanceRow[] }>('/v1/hr/attendance') });
-  const form = useForm<{ workDate: string; status: 'present' | 'absent' | 'leave' | 'off'; notes: string }>({ defaultValues: { status: 'present' } });
+  const employees = useEmployees(can('hr.manage'));
+  const form = useForm<{ employeeId: string; workDate: string; status: 'present' | 'absent' | 'leave' | 'off'; notes: string }>({ defaultValues: { status: 'present', employeeId: '' } });
   const checkIn = useMutation({
     mutationFn: () => api('/v1/hr/attendance/check-in', { method: 'POST' }),
     onSuccess: async () => {
@@ -157,13 +158,18 @@ export function AttendancePage() {
     onError: (reason) => setError(message(reason)),
   });
   const record = useMutation({
-    mutationFn: (values: { workDate: string; status: string; notes: string }) => api('/v1/hr/attendance', {
+    mutationFn: (values: { employeeId: string; workDate: string; status: string; notes: string }) => api('/v1/hr/attendance', {
       method: 'POST',
-      body: JSON.stringify({ ...values, notes: values.notes || null }),
+      body: JSON.stringify({
+        workDate: values.workDate,
+        status: values.status,
+        notes: values.notes || null,
+        employeeId: values.employeeId ? Number(values.employeeId) : undefined,
+      }),
     }),
     onSuccess: async () => {
       setError('');
-      form.reset({ status: 'present', workDate: '', notes: '' });
+      form.reset({ status: 'present', workDate: '', notes: '', employeeId: '' });
       await client.invalidateQueries({ queryKey: ['attendance'] });
     },
     onError: (reason) => setError(message(reason)),
@@ -174,7 +180,13 @@ export function AttendancePage() {
       <PageHeader title="Attendance" description="Record your own day, or maintain the register when your role includes HR management." action={can('attendance.self') ? <Button onClick={() => checkIn.mutate()} disabled={checkIn.isPending}>Check in or out</Button> : undefined} />
       {error ? <div className="mb-4"><ErrorText>{error}</ErrorText></div> : null}
       {can('hr.manage') ? (
-        <form className="mb-5 grid gap-3 rounded-lg border border-line bg-white p-4 md:grid-cols-4" onSubmit={form.handleSubmit((values) => record.mutate(values))}>
+        <form className="mb-5 grid gap-3 rounded-lg border border-line bg-white p-4 md:grid-cols-5" onSubmit={form.handleSubmit((values) => record.mutate(values))}>
+          <Field label="Employee">
+            <select className={controlClass} {...form.register('employeeId')}>
+              <option value="">My own record</option>
+              {(employees.data?.data ?? []).map((employee) => <option key={employee.id} value={employee.id}>{employee.employeeNumber} · {employee.firstName} {employee.lastName}</option>)}
+            </select>
+          </Field>
           <Field label="Date"><input className={controlClass} type="date" {...form.register('workDate', { required: true })} /></Field>
           <Field label="Status">
             <select className={controlClass} {...form.register('status')}>

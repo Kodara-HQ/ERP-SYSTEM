@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { DepartmentRegistersPanel } from './ManagementPages';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
   ArrowDownRight,
@@ -39,6 +39,9 @@ import {
   BookOpen,
   Megaphone,
   UserCheck,
+  CalendarCheck,
+  LifeBuoy,
+  NotebookPen,
   type LucideIcon,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -717,6 +720,8 @@ function CeoDashboard({ data, money, trend, canOpen, inbox, inboxLoading, notes,
         <p className="text-sm text-slate-500">{greetingLine}</p>
       </header>
 
+      <MyWorkStrip data={data} canOpen={canOpen} />
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {cards.map((item) => {
           const body = (
@@ -899,6 +904,64 @@ const cardClass = 'rounded-2xl border border-line/70 bg-white shadow-[0_2px_10px
 
 type StatCard = { label: string; value: string; change: number | null; note: string; icon: LucideIcon; tone: string; to: string; upIsGood?: boolean };
 
+/**
+ * Managers are employees too. Every department dashboard keeps the person's own work in reach: their
+ * leave, their requests, their attendance, their reports, and IT support.
+ */
+function MyWorkStrip({ data, canOpen }: { data: Data; canOpen: (path: string) => boolean }) {
+  const { can } = useAuth();
+  const client = useQueryClient();
+  const [note, setNote] = useState('');
+  const checkIn = useMutation({
+    mutationFn: () => api<{ data: { checkOut?: string } }>('/v1/hr/attendance/check-in', { method: 'POST' }),
+    onSuccess: async (result) => {
+      setNote(result.data?.checkOut ? 'Checked out. Have a good evening.' : 'Checked in. Have a good day.');
+      await client.invalidateQueries({ queryKey: ['attendance'] });
+    },
+    onError: (reason) => setNote(reason instanceof Error ? reason.message : 'Check-in failed.'),
+  });
+  const tiles = [
+    can('leave.apply') ? { label: 'My leave', detail: data.myLeave ? `${data.myLeave} open` : 'Apply or check balance', icon: CalendarDays, to: '/hr' } : null,
+    data.approvals ? { label: 'My requests', detail: data.approvals.mine ? `${data.approvals.mine} in approval` : 'Nothing in progress', icon: Send, to: '/approvals' } : null,
+    can('reports.submit') ? { label: 'My reports', detail: 'Daily to annual', icon: NotebookPen, to: '/management' } : null,
+    can('attendance.self') ? { label: 'My attendance', detail: 'View my days', icon: CalendarCheck, to: '/hr/attendance' } : null,
+    can('support.request') ? { label: 'IT support', detail: 'Raise a request', icon: LifeBuoy, to: '/registers' } : null,
+  ].filter((tile): tile is { label: string; detail: string; icon: LucideIcon; to: string } => tile !== null && canOpen(tile.to));
+  if (tiles.length === 0 && !can('attendance.self')) return null;
+
+  return (
+    <article className={`${cardClass} p-4`} aria-label="My work">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-base font-bold text-ink">My work</h2>
+          <p className="text-xs text-slate-500">You are an employee too: your own leave, requests, attendance and reports</p>
+        </div>
+        {can('attendance.self') ? (
+          <div className="flex items-center gap-3">
+            {note ? <span className="text-xs text-slate-500" role="status">{note}</span> : null}
+            <button type="button" onClick={() => checkIn.mutate()} disabled={checkIn.isPending} className="inline-flex items-center gap-1.5 rounded-full bg-pine px-4 py-2 text-sm font-semibold text-cream hover:bg-navy disabled:opacity-60">
+              <CalendarCheck size={15} /> Check in or out
+            </button>
+          </div>
+        ) : null}
+      </div>
+      <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
+        {tiles.map((tile) => (
+          <li key={tile.label}>
+            <Link to={tile.to} className="flex items-center gap-3 rounded-xl border border-line px-3 py-2.5 hover:border-pine/40 hover:bg-canvas">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-cream text-pine"><tile.icon size={17} /></span>
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-semibold text-ink">{tile.label}</span>
+                <span className="block truncate text-xs text-slate-500">{tile.detail}</span>
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </article>
+  );
+}
+
 function DashboardHeader({ title, tagline, greetingLine }: { title: string; tagline: string; greetingLine: string }) {
   return (
     <header className="flex flex-wrap items-end justify-between gap-3">
@@ -1004,6 +1067,7 @@ function FinanceDashboard({ data, money, canOpen, greetingLine }: { data: Data; 
   return (
     <section className="mx-auto grid max-w-[1600px] gap-5">
       <DashboardHeader title="Finance Dashboard" tagline="Financial control, business growth" greetingLine={greetingLine} />
+      <MyWorkStrip data={data} canOpen={canOpen} />
       <StatCards cards={cards} canOpen={canOpen} />
 
       <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-12">
@@ -1100,6 +1164,7 @@ function OperationsDashboard({ data, canOpen, greetingLine }: { data: Data; canO
   return (
     <section className="mx-auto grid max-w-[1600px] gap-5">
       <DashboardHeader title="Operations Dashboard" tagline="Efficient operations, higher output" greetingLine={greetingLine} />
+      <MyWorkStrip data={data} canOpen={canOpen} />
       <StatCards cards={cards} canOpen={canOpen} />
 
       <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-12">
@@ -1177,6 +1242,7 @@ function HrDashboard({ data, canOpen, notes, greetingLine }: { data: Data; canOp
   return (
     <section className="mx-auto grid max-w-[1600px] gap-5">
       <DashboardHeader title="HR Dashboard" tagline="Our people, our strength" greetingLine={greetingLine} />
+      <MyWorkStrip data={data} canOpen={canOpen} />
       <StatCards cards={cards} canOpen={canOpen} />
 
       <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-12">

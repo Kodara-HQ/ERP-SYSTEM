@@ -319,6 +319,7 @@ export async function recordAttendance(auth: AuthContext, input: {
   if (!own && !hasPermission(auth, 'hr.manage')) {
     throw new HttpError(403, 'You can record attendance only for your own record.', 'HR_SCOPE_DENIED');
   }
+  if (!own) await assertEmployeeAccess(auth, employeeId, true);
   await execute(
     pool,
     `INSERT INTO attendance_records (employee_id, work_date, attendance_status, check_in, check_out, notes, recorded_by)

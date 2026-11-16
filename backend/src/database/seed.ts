@@ -67,7 +67,7 @@ export async function seedFoundation(): Promise<void> {
       throw new Error(`Role ${role.code} was not saved.`);
     }
     await execute(pool, 'DELETE FROM role_permissions WHERE role_id = ?', [stored.id]);
-    for (const code of role.permissions) {
+    for (const code of new Set(role.permissions)) {
       const permissionId = permissionIds.get(code);
       if (!permissionId) {
         throw new Error(`Permission ${code} is missing from the catalogue.`);

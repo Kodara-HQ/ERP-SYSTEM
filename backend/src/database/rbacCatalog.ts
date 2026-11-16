@@ -100,8 +100,13 @@ const approvalUse = ['approvals.view', 'approvals.submit', 'approvals.decide'];
 const approvalLead = [...approvalUse, 'approvals.delegate', 'approvals.process'];
 const selfService = ['leave.apply', 'attendance.self', 'reports.submit', 'support.request'];
 const operational = ['dashboard.view', 'profile.view', 'notifications.view', 'departments.view', 'positions.view', 'legal.request', ...approvalUse, ...selfService];
-/** Every head of department supervises, reports to the CEO, and monitors their own people. */
-const departmentHead = ['reports.review', 'targets.manage', 'assessments.manage'];
+/**
+ * Every head of department supervises, reports to the CEO, and monitors their own people. They also run
+ * their department's money: its budget and payment requests go through the approval route.
+ */
+const departmentHead = ['reports.review', 'targets.manage', 'assessments.manage', 'finance.request'];
+/** Managers are employees too: they keep the full employee self-service set alongside their department work. */
+const manager = [...new Set([...operational, ...viewOrg, 'organisation.request_change', ...approvalLead, ...departmentHead])];
 
 export const roleCatalog: RoleSeed[] = [
   {
@@ -151,26 +156,18 @@ export const roleCatalog: RoleSeed[] = [
     canApproveExpenditure: false,
     hasFinalBusinessAuthority: false,
     permissions: [
-      'dashboard.view',
-      'profile.view',
-      'notifications.view',
-      ...viewOrg,
+      ...manager,
       'employees.view',
       'employees.view_confidential',
       'employees.create',
       'employees.edit',
-      'organisation.request_change',
       'users.view',
       'payroll.view',
       'payroll.manage',
       'payroll.submit',
-      'legal.request',
-      ...approvalLead,
       'hr.view',
       'hr.manage',
       'hr.view_confidential',
-      ...selfService,
-      ...departmentHead,
       'announcements.manage',
     ],
   },
@@ -182,20 +179,15 @@ export const roleCatalog: RoleSeed[] = [
     canApproveExpenditure: false,
     hasFinalBusinessAuthority: false,
     permissions: [
-      'dashboard.view',
-      'profile.view',
-      'notifications.view',
+      ...operational,
       ...viewOrg,
       'employees.view',
       'employees.create',
       'employees.edit',
-      ...approvalUse,
       'hr.view',
       'hr.manage',
       'payroll.view',
       'payroll.manage',
-      'legal.request',
-      ...selfService,
     ],
   },
   {
@@ -205,7 +197,7 @@ export const roleCatalog: RoleSeed[] = [
     isTechnicalAdmin: false,
     canApproveExpenditure: false,
     hasFinalBusinessAuthority: false,
-    permissions: ['dashboard.view', 'profile.view', 'notifications.view', ...viewOrg, 'organisation.request_change', 'legal.request', 'operations.view', 'operations.manage', ...approvalLead, ...selfService, ...departmentHead, 'procurement.view', 'procurement.request', 'procurement.manage', 'inventory.view', 'inventory.manage', 'finance.request'],
+    permissions: [...manager, 'operations.view', 'operations.manage', 'procurement.view', 'procurement.request', 'procurement.manage', 'inventory.view', 'inventory.manage', 'finance.request'],
   },
   {
     code: 'ACCOUNTS_OFFICER',
@@ -214,7 +206,7 @@ export const roleCatalog: RoleSeed[] = [
     isTechnicalAdmin: false,
     canApproveExpenditure: false,
     hasFinalBusinessAuthority: false,
-    permissions: ['dashboard.view', 'profile.view', 'notifications.view', ...viewOrg, 'organisation.request_change', 'legal.request', 'payroll.view', 'payroll.verify', 'payroll.pay', ...approvalLead, ...selfService, ...departmentHead, 'procurement.view', 'inventory.view', 'finance.view', 'finance.request', 'finance.manage'],
+    permissions: [...manager, 'payroll.view', 'payroll.verify', 'payroll.pay', 'procurement.view', 'inventory.view', 'finance.view', 'finance.request', 'finance.manage'],
   },
   {
     code: 'ACCOUNTS_CLERK',
@@ -232,20 +224,7 @@ export const roleCatalog: RoleSeed[] = [
     isTechnicalAdmin: false,
     canApproveExpenditure: false,
     hasFinalBusinessAuthority: false,
-    permissions: [
-      'dashboard.view',
-      'profile.view',
-      'notifications.view',
-      'departments.view',
-      'positions.view',
-      'legal.view_confidential',
-      'organisation.request_change',
-      ...approvalLead,
-      ...selfService,
-      ...departmentHead,
-      'legal.manage',
-      'legal.request',
-    ],
+    permissions: [...manager, 'legal.view_confidential', 'legal.manage'],
   },
   {
     code: 'IT_MARKETING_MANAGER',
@@ -254,7 +233,7 @@ export const roleCatalog: RoleSeed[] = [
     isTechnicalAdmin: false,
     canApproveExpenditure: false,
     hasFinalBusinessAuthority: false,
-    permissions: ['dashboard.view', 'profile.view', 'notifications.view', 'legal.request', ...viewOrg, 'organisation.request_change', ...approvalLead, ...selfService, ...departmentHead, 'it.view', 'it.manage', 'marketing.view', 'marketing.manage'],
+    permissions: [...manager, 'it.view', 'it.manage', 'marketing.view', 'marketing.manage'],
   },
   {
     code: 'IT_OFFICER',

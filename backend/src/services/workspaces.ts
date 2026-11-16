@@ -43,7 +43,10 @@ export async function workspaceGate(auth: AuthContext): Promise<WorkspaceGate> {
     `SELECT DISTINCT workspace_code FROM department_workspaces WHERE department_id IN (${marks})`,
     visibility.departmentIds,
   );
-  return { mode: 'listed', codes: rows.map((row) => String(row.workspace_code)) };
+  // A role always works in its own department's workspaces, even when the person is placed elsewhere,
+  // so an HR Manager keeps HR and People whatever department their employee record sits in.
+  const codes = new Set([...rows.map((row) => String(row.workspace_code)), ...roleHome(auth).codes]);
+  return { mode: 'listed', codes: [...codes] };
 }
 
 /**

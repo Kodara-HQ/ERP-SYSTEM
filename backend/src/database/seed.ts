@@ -13,6 +13,7 @@ import {
   type WorkflowSeed,
 } from '../modules/approvals/workflowCatalog';
 import { segregationCatalog } from '../services/governance';
+import { ensureAllManagerEmployees } from '../services/managerEmployees';
 import { departmentWorkspaces, initialDepartments, initialPositions, permissionCatalog, roleCatalog } from './rbacCatalog';
 import { hashPassword } from '../utils/password';
 import { logger } from '../utils/logger';
@@ -453,6 +454,8 @@ async function main(): Promise<void> {
   await seedFoundation();
   await seedOrganisation();
   await seedAdmin();
+  const linked = await ensureAllManagerEmployees(pool);
+  if (linked > 0) logger.info(`Placed ${linked} manager account(s) as employees in their departments.`);
   await pool.end();
 }
 

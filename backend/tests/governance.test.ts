@@ -318,6 +318,13 @@ describe('accounts not yet linked to an employee', () => {
     const branch = await execute(pool, `INSERT INTO branches (company_id, code, name, status) VALUES (?, 'HQ', 'Head Office', 'active')`, [company!.id]);
     const ops_dept = await queryOne<RowDataPacket>(pool, `SELECT id FROM departments WHERE code = 'OPS-HAUL'`);
     const driver = await queryOne<RowDataPacket>(pool, `SELECT id FROM positions WHERE code = 'DRIVER'`);
+    // The registration form's lists: HR places people anywhere, so it sees the whole structure.
+    const departmentCount = await scalar(pool, `SELECT COUNT(*) FROM departments WHERE status = 'active'`);
+    const departmentList = await request(app).get('/api/v1/organisation/departments?pageSize=200').set(auth(hr));
+    expect(departmentList.body.data).toHaveLength(departmentCount);
+    expect((await request(app).get('/api/v1/organisation/branches?pageSize=200').set(auth(hr))).body.data).toHaveLength(1);
+    expect((await request(app).get('/api/v1/organisation/positions?pageSize=200').set(auth(hr))).body.data.length).toBeGreaterThan(20);
+    expect((await request(app).get('/api/v1/organisation/departments?pageSize=200').set(auth(ops))).body.data).toHaveLength(0);
     const created = await request(app).post('/api/v1/employees').set(auth(hr)).send({
       firstName: 'Kwame', lastName: 'Driver', employmentType: 'permanent',
       departmentId: ops_dept!.id, positionId: driver!.id, branchId: branch.insertId, assignmentStartDate: '2026-11-01',

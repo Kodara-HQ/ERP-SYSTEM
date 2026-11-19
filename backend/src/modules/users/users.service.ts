@@ -2,6 +2,7 @@ import type { RowDataPacket } from '../../database/rows';
 import { pool } from '../../database/pool';
 import { execute, query, queryOne, scalar, withTransaction, type Db } from '../../database/query';
 import { writeAudit } from '../../services/auditService';
+import { ensureManagerEmployee } from '../../services/managerEmployees';
 import { isTechnicalAdmin } from '../../services/access';
 import { notifyUsersWithPermission } from '../../services/notify';
 import type { AuthContext } from '../../types/auth';
@@ -299,6 +300,7 @@ async function insertRoleAssignment(connection: Db, auth: AuthContext, userId: n
       excludeUserId: actor.userId,
     });
   }
+  await ensureManagerEmployee(connection, userId, actor.userId);
   return { id: result.insertId };
 }
 

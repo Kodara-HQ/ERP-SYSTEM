@@ -4,7 +4,8 @@ import { execute, query, queryOne, scalar, withTransaction, type Db } from '../.
 import { requestMeta, writeAudit } from '../../services/auditService';
 import { nextReference, requireCompanyId } from '../../services/companyContext';
 import { notifyUsersWithPermission } from '../../services/notify';
-import { branchClause, departmentClause, recordVisibility } from '../../services/visibility';
+import { branchClause, departmentClause } from '../../services/visibility';
+import { personnelVisibility } from '../../services/workspaces';
 import type { AuthContext } from '../../types/auth';
 import { HttpError, notFound } from '../../utils/httpError';
 import { likeTerm, limitOffset, pageMeta, type PageQuery } from '../../utils/pagination';
@@ -158,7 +159,7 @@ export async function listBranches(auth: AuthContext, filters: PageQuery & { sta
   const companyId = await requireCompanyId(pool);
   const where = ['b.company_id = ?'];
   const params: unknown[] = [companyId];
-  const scope = branchClause(await recordVisibility(auth), 'b.id');
+  const scope = branchClause(await personnelVisibility(auth), 'b.id');
   where.push(scope.sql);
   params.push(...scope.params);
   if (filters.status !== 'all') {
@@ -285,7 +286,7 @@ export async function listLocations(auth: AuthContext, listQuery: PageQuery & { 
   const companyId = await requireCompanyId(pool);
   const where = ['l.company_id = ?'];
   const params: unknown[] = [companyId];
-  const scope = branchClause(await recordVisibility(auth), 'l.branch_id');
+  const scope = branchClause(await personnelVisibility(auth), 'l.branch_id');
   where.push(scope.sql);
   params.push(...scope.params);
   if (listQuery.status !== 'all') {
@@ -420,7 +421,7 @@ export async function listDepartments(auth: AuthContext, listQuery: PageQuery & 
   const companyId = await requireCompanyId(pool);
   const where = ['d.company_id = ?'];
   const params: unknown[] = [companyId];
-  const scope = departmentClause(await recordVisibility(auth), 'd.id');
+  const scope = departmentClause(await personnelVisibility(auth), 'd.id');
   where.push(scope.sql);
   params.push(...scope.params);
   if (listQuery.status !== 'all') {
@@ -567,7 +568,7 @@ export async function listPositions(auth: AuthContext, listQuery: PageQuery & { 
   const companyId = await requireCompanyId(pool);
   const where = ['p.company_id = ?'];
   const params: unknown[] = [companyId];
-  const scope = departmentClause(await recordVisibility(auth), 'p.department_id');
+  const scope = departmentClause(await personnelVisibility(auth), 'p.department_id');
   where.push(scope.sql);
   params.push(...scope.params);
   if (listQuery.status !== 'all') {

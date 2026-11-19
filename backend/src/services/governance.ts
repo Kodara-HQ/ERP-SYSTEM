@@ -68,6 +68,13 @@ export const segregationCatalog: SegregationRuleSeed[] = [
     locked: false,
   },
   {
+    code: 'DISPATCH_REQUESTER_NOT_AUTHORISER',
+    name: 'Dispatch requester cannot authorise it',
+    description: 'The person who requested a produce dispatch cannot also authorise it and assign transport. Switch on when more than one manager authorises dispatch.',
+    enabled: false,
+    locked: false,
+  },
+  {
     code: 'REQUESTER_NOT_PO_ISSUER',
     name: 'Requester cannot issue the purchase order',
     description: 'The person who requested a purchase cannot issue the purchase order for it.',

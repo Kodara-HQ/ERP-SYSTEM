@@ -246,15 +246,15 @@ describe('departmental confidentiality', () => {
     expect((await request(app).get('/api/v1/registers/compliance').set(auth(t.sysadmin))).status).toBe(403);
     expect((await request(app).get('/api/v1/registers/compliance').set(auth(t.fin))).status).toBe(403);
     expect((await request(app).get('/api/v1/registers/campaigns').set(auth(t.ops))).status).toBe(403);
-    expect((await request(app).get('/api/v1/registers/harvests').set(auth(t.itm))).status).toBe(403);
+    expect((await request(app).get('/api/v1/registers/quality_checks').set(auth(t.itm))).status).toBe(403);
     expect((await request(app).get('/api/v1/registers/campaigns').set(auth(t.itm))).status).toBe(200);
-    expect((await request(app).get('/api/v1/registers/harvests').set(auth(t.ops))).status).toBe(200);
+    expect((await request(app).get('/api/v1/registers/quality_checks').set(auth(t.ops))).status).toBe(200);
     expect((await request(app).get('/api/v1/registers/compliance').set(auth(t.legal))).status).toBe(200);
 
     expect((await request(app).get('/api/v1/finance/journals').set(auth(t.ceo))).status).toBe(200);
     expect((await request(app).get('/api/v1/registers/compliance').set(auth(t.ceo))).status).toBe(200);
     const registers = await request(app).get('/api/v1/registers').set(auth(t.ceo));
-    expect(registers.body.data.length).toBe(19);
+    expect(registers.body.data.length).toBe(14);
     const opsRegisters = await request(app).get('/api/v1/registers').set(auth(t.ops));
     expect(new Set(opsRegisters.body.data.map((row: { group: string }) => row.group))).toEqual(new Set(['Operations', 'IT']));
     expect(opsRegisters.body.data.find((row: { code: string }) => row.code === 'support_tickets').access).toBe('self');

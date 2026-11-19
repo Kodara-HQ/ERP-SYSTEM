@@ -189,6 +189,18 @@ export const workflowCatalog: WorkflowSeed[] = [
   },
 ];
 
+workflowCatalog.push({
+  code: 'FARM_RESOURCE',
+  name: 'Farm resource request',
+  description: 'A farm supervisor asks for inputs, equipment, fuel, or labour. The Operations Manager approves within their limit; above it, or when special approval is asked, the Operations Manager recommends and the CEO decides.',
+  transactionKind: 'expenditure',
+  completionRoleCode: 'OPERATIONS_MANAGER',
+  steps: [
+    { name: 'Operations Manager approval', resolver: 'role', roleCode: 'OPERATIONS_MANAGER', decisionKind: 'approve', requiresExpenditureAuthority: true },
+    ceoWhenRequired,
+  ],
+});
+
 /** Opening financial limits per role, in company currency. A missing role has no spending authority. */
 export const authorityLimitCatalog: Array<{ roleCode: string; maxAmount: number; notes: string }> = [
   { roleCode: 'OPERATIONS_MANAGER', maxAmount: 10000, notes: 'Routine operational purchases and haulage costs.' },

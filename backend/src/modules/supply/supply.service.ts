@@ -34,7 +34,7 @@ function lineTotal(quantity: number, unitCost: number): string {
   return fromCents(Math.round((milli(quantity) * cents(unitCost)) / 1000));
 }
 
-async function activeItem(db: Db, companyId: number, itemId: number) {
+export async function activeItem(db: Db, companyId: number, itemId: number) {
   const item = await queryOne<RowDataPacket>(
     db,
     'SELECT id, sku, name, unit, status FROM stock_items WHERE id = ? AND company_id = ?',
@@ -44,7 +44,7 @@ async function activeItem(db: Db, companyId: number, itemId: number) {
   return item;
 }
 
-async function activeWarehouse(db: Db, companyId: number, warehouseId: number) {
+export async function activeWarehouse(db: Db, companyId: number, warehouseId: number) {
   const warehouse = await queryOne<RowDataPacket>(
     db,
     'SELECT id, code, name, status FROM warehouses WHERE id = ? AND company_id = ?',
@@ -54,7 +54,7 @@ async function activeWarehouse(db: Db, companyId: number, warehouseId: number) {
   return warehouse;
 }
 
-async function lockBalance(db: Db, warehouseId: number, itemId: number) {
+export async function lockBalance(db: Db, warehouseId: number, itemId: number) {
   await execute(
     db,
     'INSERT IGNORE INTO stock_balances (warehouse_id, item_id, quantity, average_cost) VALUES (?, ?, 0, 0)',
@@ -69,7 +69,7 @@ async function lockBalance(db: Db, warehouseId: number, itemId: number) {
   return { quantity: milli(row.quantity), averageCost: cents(row.average_cost) };
 }
 
-async function changeStock(db: Db, input: {
+export async function changeStock(db: Db, input: {
   companyId: number;
   warehouseId: number;
   itemId: number;

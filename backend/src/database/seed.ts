@@ -153,6 +153,7 @@ export async function seedFoundation(): Promise<void> {
   }
   await seedApprovalWorkflows();
   await seedAuthorityLimits();
+  await seedFarmStockCategories();
   await seedLeaveTypes();
   await seedLedger();
 }
@@ -258,6 +259,16 @@ export async function seedApprovalWorkflows(): Promise<void> {
 }
 
 /** Opening financial limits. Existing limits, including ones an administrator changed, are kept. */
+/** Stock categories the farm module reads: harvested produce, and the farm input groups. Existing categories are kept. */
+export async function seedFarmStockCategories(): Promise<void> {
+  const company = await queryOne<RowDataPacket>(pool, 'SELECT id FROM companies ORDER BY id LIMIT 1');
+  if (!company) return;
+  for (const name of ['Farm produce', 'Seeds', 'Fertilisers', 'Pesticides', 'Herbicides', 'Irrigation materials', 'Other farm inputs']) {
+    const existing = await queryOne<RowDataPacket>(pool, 'SELECT id FROM stock_categories WHERE company_id = ? AND LOWER(name) = LOWER(?)', [company.id, name]);
+    if (!existing) await execute(pool, "INSERT INTO stock_categories (company_id, name, status) VALUES (?, ?, 'active')", [company.id, name]);
+  }
+}
+
 export async function seedAuthorityLimits(): Promise<void> {
   const company = await queryOne<RowDataPacket>(pool, 'SELECT id FROM companies ORDER BY id LIMIT 1');
   if (!company) return;

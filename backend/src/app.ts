@@ -27,6 +27,7 @@ import { reportsRouter } from './modules/reports/reports.routes';
 import { governanceRouter } from './modules/governance/governance.routes';
 import { managementRouter } from './modules/management/management.routes';
 import { registersRouter } from './modules/registers/registers.routes';
+import { farmRouter } from './modules/farm/farm.routes';
 
 export function createApp() {
   const app = express();
@@ -88,6 +89,7 @@ export function createApp() {
   app.use('/api/v1/governance', governanceRouter);
   app.use('/api/v1/management', managementRouter);
   app.use('/api/v1/registers', registersRouter);
+  app.use('/api/v1/farm', farmRouter);
 
   app.use(errorHandler);
   return app;

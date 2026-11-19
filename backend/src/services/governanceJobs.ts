@@ -1,5 +1,6 @@
 import { runEscalations } from '../modules/approvals/approval.service';
 import { notifyDueRecords } from '../modules/registers/registers.service';
+import { runFarmNotices } from '../modules/farm/farm.jobs';
 import { logger } from '../utils/logger';
 
 const HOUR = 60 * 60 * 1000;
@@ -14,7 +15,8 @@ export async function runGovernanceJobs(): Promise<void> {
   try {
     const escalations = await runEscalations(system);
     const due = await notifyDueRecords();
-    if (escalations.escalated || due) logger.info('Governance jobs ran.', { escalated: escalations.escalated, dueNotices: due });
+    const farm = await runFarmNotices();
+    if (escalations.escalated || due || farm) logger.info('Governance jobs ran.', { escalated: escalations.escalated, dueNotices: due, farmNotices: farm });
   } catch (error) {
     logger.error('Governance jobs failed.', { message: error instanceof Error ? error.message : 'Unknown error' });
   }

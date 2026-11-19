@@ -87,6 +87,13 @@ export const permissionCatalog: PermissionSeed[] = [
   ['it.manage', 'it', 'edit', 'Maintain IT support, backups, infrastructure, and integrations', 'standard'],
   ['marketing.view', 'marketing', 'view', 'View customers, campaigns, opportunities, and market research', 'standard'],
   ['marketing.manage', 'marketing', 'edit', 'Maintain customers, campaigns, opportunities, and market research', 'standard'],
+  ['farm.view', 'farm', 'view', 'View farm operations for the farms in your reach', 'standard'],
+  ['farm.report', 'farm', 'submit', 'Submit daily farm reports, harvests, incidents, and resource requests for your farms', 'standard'],
+  ['farm.manage', 'farm', 'edit', 'Create and edit farms, crop cycles, targets, equipment, and haulage', 'standard'],
+  ['farm.assign', 'farm', 'assign', 'Assign farm teams and schedule farm activities', 'standard'],
+  ['farm.review', 'farm', 'approve', 'Review daily reports, inspect farms, and verify harvests', 'standard'],
+  ['farm.approve', 'farm', 'approve', 'Authorise produce dispatch and fulfil resource requests', 'standard'],
+  ['farm.export', 'farm', 'view', 'Export farm reports to PDF and Excel', 'standard'],
 ].map(([code, module, action, description, sensitivity]) => ({
   code,
   module,
@@ -106,6 +113,8 @@ const operational = ['dashboard.view', 'profile.view', 'notifications.view', 'de
  */
 const departmentHead = ['reports.review', 'targets.manage', 'assessments.manage', 'finance.request'];
 /** Managers are employees too: they keep the full employee self-service set alongside their department work. */
+/** The Operations Manager runs farm operations across every farm. */
+const farmManager = ['farm.view', 'farm.report', 'farm.manage', 'farm.assign', 'farm.review', 'farm.approve', 'farm.export'];
 const manager = [...new Set([...operational, ...viewOrg, 'organisation.request_change', ...approvalLead, ...departmentHead])];
 
 export const roleCatalog: RoleSeed[] = [
@@ -146,6 +155,8 @@ export const roleCatalog: RoleSeed[] = [
       'announcements.manage',
       'it.view',
       'marketing.view',
+      'farm.view',
+      'farm.export',
     ],
   },
   {
@@ -197,7 +208,7 @@ export const roleCatalog: RoleSeed[] = [
     isTechnicalAdmin: false,
     canApproveExpenditure: false,
     hasFinalBusinessAuthority: false,
-    permissions: [...manager, 'operations.view', 'operations.manage', 'procurement.view', 'procurement.request', 'procurement.manage', 'inventory.view', 'inventory.manage', 'finance.request'],
+    permissions: [...manager, 'operations.view', 'operations.manage', 'procurement.view', 'procurement.request', 'procurement.manage', 'inventory.view', 'inventory.manage', 'finance.request', ...farmManager],
   },
   {
     code: 'ACCOUNTS_OFFICER',
@@ -322,11 +333,11 @@ export const roleCatalog: RoleSeed[] = [
   {
     code: 'FARM_SUPERVISOR',
     name: 'Farm Supervisor',
-    description: 'Farm operations role.',
+    description: 'Runs assigned farms: daily reports, harvests, incidents, and resource requests. Sees only the farms they supervise.',
     isTechnicalAdmin: false,
     canApproveExpenditure: false,
     hasFinalBusinessAuthority: false,
-    permissions: operational,
+    permissions: [...operational, 'farm.view', 'farm.report', 'inventory.view'],
   },
   {
     code: 'DRIVER',
@@ -365,6 +376,7 @@ export const departmentWorkspaces: Record<string, string[]> = {
 };
 
 export const initialDepartments: Array<{ code: string; name: string; parentCode: string | null }> = [
+  { code: 'EXEC', name: 'Executive Office', parentCode: null },
   { code: 'HR', name: 'Human Resources', parentCode: null },
   { code: 'OPS', name: 'Operations', parentCode: null },
   { code: 'OPS-PROC', name: 'Procurement and Purchasing', parentCode: 'OPS' },
@@ -386,7 +398,7 @@ export const initialPositions: Array<{
   reportsToCode: string | null;
   isManagerial: boolean;
 }> = [
-  { code: 'CEO', title: 'Chief Executive Officer', departmentCode: null, reportsToCode: null, isManagerial: true },
+  { code: 'CEO', title: 'Chief Executive Officer', departmentCode: 'EXEC', reportsToCode: null, isManagerial: true },
   { code: 'HR-MANAGER', title: 'HR Manager', departmentCode: 'HR', reportsToCode: 'CEO', isManagerial: true },
   { code: 'HR-OFFICER', title: 'HR Officer', departmentCode: 'HR', reportsToCode: 'HR-MANAGER', isManagerial: false },
   { code: 'OPS-MANAGER', title: 'Operations Manager', departmentCode: 'OPS', reportsToCode: 'CEO', isManagerial: true },

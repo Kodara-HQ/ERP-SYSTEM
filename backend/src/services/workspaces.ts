@@ -68,6 +68,8 @@ export const roleHomeWorkspaces: Record<string, string[]> = {
   PROCUREMENT_OFFICER: ['procurement'],
   PURCHASE_CLERK: ['procurement'],
   STOREKEEPER: ['inventory'],
+  FARM_SUPERVISOR: ['operations'],
+  DRIVER: ['operations'],
 };
 
 function roleHome(auth: AuthContext): WorkspaceGate {

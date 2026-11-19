@@ -40,46 +40,11 @@ const legal = { group: 'Legal' as const, workspace: 'legal', viewPermission: 'le
 const it = { group: 'IT' as const, workspace: 'it', viewPermission: 'it.view', managePermission: 'it.manage' };
 const marketing = { group: 'Marketing' as const, workspace: 'marketing', viewPermission: 'marketing.view', managePermission: 'marketing.manage' };
 
+/**
+ * Farm plots, crop activities, harvests, equipment, and haulage trips moved to the Farm Operations tables
+ * (migration 021) with foreign keys to farms, stock, and vehicles. Their entries were copied across.
+ */
 export const registerCatalog: RegisterDefinition[] = [
-  {
-    ...ops, code: 'farm_plots', name: 'Farm plots', prefix: 'BJG-FRM',
-    description: 'Cashew farms and plots under management.',
-    statuses: ['active', 'fallow', 'inactive'], closedStatuses: ['inactive'],
-    fields: [
-      { key: 'title', label: 'Plot name', type: 'text', required: true, column: 'title' },
-      { key: 'location', label: 'Location', type: 'text', required: true },
-      { key: 'sizeHectares', label: 'Size (hectares)', type: 'number', column: 'quantity' },
-      { key: 'crop', label: 'Crop', type: 'text' },
-      { key: 'treeCount', label: 'Trees', type: 'number' },
-      { key: 'plantedYear', label: 'Year planted', type: 'number' },
-    ],
-  },
-  {
-    ...ops, code: 'crop_activities', name: 'Crop management', prefix: 'BJG-CRP',
-    description: 'Planting, weeding, pruning, spraying, fertilising, and inspections.',
-    statuses: ['planned', 'done', 'cancelled'], closedStatuses: ['done', 'cancelled'],
-    fields: [
-      { key: 'title', label: 'Activity', type: 'text', required: true, column: 'title' },
-      { key: 'activityDate', label: 'Date', type: 'date', required: true, column: 'entry_date' },
-      { key: 'plot', label: 'Plot', type: 'text', required: true },
-      { key: 'activityType', label: 'Type', type: 'select', required: true, options: ['planting', 'weeding', 'pruning', 'spraying', 'fertilising', 'inspection', 'other'] },
-      { key: 'labourCount', label: 'Workers', type: 'number' },
-      { key: 'notes', label: 'Notes', type: 'textarea' },
-    ],
-  },
-  {
-    ...ops, code: 'harvests', name: 'Harvesting', prefix: 'BJG-HRV',
-    description: 'Raw cashew nut harvested by plot.',
-    statuses: ['recorded', 'stored', 'dispatched'], closedStatuses: ['dispatched'],
-    fields: [
-      { key: 'title', label: 'Plot', type: 'text', required: true, column: 'title' },
-      { key: 'harvestDate', label: 'Harvest date', type: 'date', required: true, column: 'entry_date' },
-      { key: 'quantityKg', label: 'Quantity (kg)', type: 'number', required: true, column: 'quantity' },
-      { key: 'grade', label: 'Grade', type: 'text' },
-      { key: 'moisturePercent', label: 'Moisture %', type: 'number' },
-      { key: 'storedAt', label: 'Stored at', type: 'text' },
-    ],
-  },
   {
     ...ops, code: 'processing_batches', name: 'Production and processing', prefix: 'BJG-BAT',
     description: 'Processing batches from raw nut to graded kernel.',
@@ -106,34 +71,6 @@ export const registerCatalog: RegisterDefinition[] = [
       { key: 'outturnKor', label: 'Outturn (KOR lbs)', type: 'number' },
       { key: 'defectPercent', label: 'Defects %', type: 'number' },
       { key: 'notes', label: 'Notes', type: 'textarea' },
-    ],
-  },
-  {
-    ...ops, code: 'equipment', name: 'Equipment and fleet', prefix: 'BJG-EQP',
-    description: 'Vehicles, tractors, machines, and their service dates.',
-    statuses: ['available', 'in_use', 'maintenance', 'retired'], closedStatuses: ['retired'], dueAlertDays: 14,
-    fields: [
-      { key: 'title', label: 'Asset', type: 'text', required: true, column: 'title' },
-      { key: 'assetType', label: 'Type', type: 'select', required: true, options: ['truck', 'vehicle', 'tractor', 'processing_machine', 'generator', 'tool', 'other'] },
-      { key: 'registrationNumber', label: 'Registration or serial', type: 'text' },
-      { key: 'lastService', label: 'Last service', type: 'date', column: 'entry_date' },
-      { key: 'nextService', label: 'Next service due', type: 'date', column: 'due_on' },
-      { key: 'notes', label: 'Notes', type: 'textarea' },
-    ],
-  },
-  {
-    ...ops, code: 'haulage_trips', name: 'Transport and haulage', prefix: 'BJG-TRP',
-    description: 'Haulage trips, loads, distance, and fuel.',
-    statuses: ['planned', 'in_transit', 'delivered', 'cancelled'], closedStatuses: ['delivered', 'cancelled'],
-    fields: [
-      { key: 'title', label: 'Route', type: 'text', required: true, column: 'title' },
-      { key: 'tripDate', label: 'Trip date', type: 'date', required: true, column: 'entry_date' },
-      { key: 'vehicle', label: 'Vehicle', type: 'text', required: true },
-      { key: 'driver', label: 'Driver', type: 'text' },
-      { key: 'cargo', label: 'Cargo', type: 'text' },
-      { key: 'quantityKg', label: 'Load (kg)', type: 'number', column: 'quantity' },
-      { key: 'distanceKm', label: 'Distance (km)', type: 'number' },
-      { key: 'fuelLitres', label: 'Fuel (litres)', type: 'number' },
     ],
   },
   {

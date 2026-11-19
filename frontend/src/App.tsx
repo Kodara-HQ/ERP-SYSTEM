@@ -9,6 +9,8 @@ import { ChangeRequestsPage } from './pages/ChangeRequestsPage';
 import { CompanyPage } from './pages/CompanyPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { CompanyOverviewPage, GovernancePage, ManagementPage, RegisterPage, RegistersIndexPage } from './pages/ManagementPages';
+import { FarmCropsPage, FarmDailyPage, FarmHarvestsPage, FarmInspectionsPage, FarmLocationsPage, FarmOverviewPage, FarmRecordPage, FarmSchedulePage, FarmTargetsPage, FarmTeamsPage, FarmYieldPage } from './pages/FarmPages';
+import { FarmDispatchPage, FarmEquipmentPage, FarmIncidentsPage, FarmInputsPage, FarmPendingPage, FarmProducePage, FarmReportsPage, FarmRequestsPage, HaulagePage } from './pages/FarmPages2';
 import { EmployeeDetailPage, EmployeesPage } from './pages/EmployeesPage';
 import { AttendancePage, HrReportsPage, LeavePage, LifecyclePage, RecruitmentPage } from './pages/HrPages';
 import { BudgetsPage, FinanceReportsPage, LedgerPage, PaymentsPage } from './pages/FinancePages';
@@ -75,6 +77,26 @@ export function App() {
         <Route path="/payroll" element={<PayrollPage />} />
         <Route path="/legal" element={<LegalPage />} />
         <Route path="/operations" element={<OperationsPage />} />
+        <Route path="/farm" element={<FarmOverviewPage />} />
+        <Route path="/farm/locations" element={<FarmLocationsPage />} />
+        <Route path="/farm/locations/:id" element={<FarmRecordPage />} />
+        <Route path="/farm/teams" element={<FarmTeamsPage />} />
+        <Route path="/farm/schedule" element={<FarmSchedulePage />} />
+        <Route path="/farm/daily" element={<FarmDailyPage />} />
+        <Route path="/farm/inspections" element={<FarmInspectionsPage />} />
+        <Route path="/farm/crops" element={<FarmCropsPage />} />
+        <Route path="/farm/targets" element={<FarmTargetsPage />} />
+        <Route path="/farm/harvests" element={<FarmHarvestsPage />} />
+        <Route path="/farm/yield" element={<FarmYieldPage />} />
+        <Route path="/farm/equipment" element={<FarmEquipmentPage />} />
+        <Route path="/farm/inputs" element={<FarmInputsPage />} />
+        <Route path="/farm/requests" element={<FarmRequestsPage />} />
+        <Route path="/farm/produce" element={<FarmProducePage />} />
+        <Route path="/farm/pending" element={<FarmPendingPage />} />
+        <Route path="/farm/incidents" element={<FarmIncidentsPage />} />
+        <Route path="/farm/dispatch" element={<FarmDispatchPage />} />
+        <Route path="/farm/reports" element={<FarmReportsPage />} />
+        <Route path="/haulage" element={<HaulagePage />} />
         <Route path="/executive" element={<ExecutivePage />} />
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/employees" element={<EmployeesPage />} />

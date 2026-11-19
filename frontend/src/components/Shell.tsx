@@ -1,5 +1,8 @@
 import { useState } from 'react';
-import { Bell, ChevronRight, LogOut, Menu, Search, X } from 'lucide-react';
+import { Bell, ChevronDown, ChevronRight, LogOut, Menu, Search, X } from 'lucide-react';
+
+/** Sidebar groups that expand and collapse. */
+const collapsibleGroups = new Set(['Farm Operations']);
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { SiteFooter } from './SiteFooter';
 import { useQuery } from '@tanstack/react-query';
@@ -67,6 +70,16 @@ export function Shell() {
   const items = visibleNavigation(user?.permissions ?? [], workspaces);
   const allowed = canOpenPath(location.pathname, user?.permissions ?? [], workspaces);
   const groups = [...new Set(items.map((item) => item.group))];
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
+    try { return JSON.parse(window.localStorage.getItem('bajogo.nav.collapsed') ?? '{}') as Record<string, boolean>; } catch { return {}; }
+  });
+  // A collapsible group opens on its own pages unless the person closed it while there.
+  const groupOpen = (group: string) => collapsed[group] === undefined ? location.pathname.startsWith('/farm') : !collapsed[group];
+  function toggleGroup(group: string) {
+    const next = { ...collapsed, [group]: groupOpen(group) };
+    setCollapsed(next);
+    try { window.localStorage.setItem('bajogo.nav.collapsed', JSON.stringify(next)); } catch { /* storage may be unavailable */ }
+  }
   const search = useQuery({
     queryKey: ['search', query],
     enabled: query.trim().length >= 2,
@@ -101,8 +114,14 @@ export function Shell() {
         <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
           {groups.map((group) => (
             <div key={group} className="mb-3">
-              {group !== 'Overview' ? <div className="px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-khaki/70">{group}</div> : null}
-              {items.filter((item) => item.group === group).map((item) => (
+              {collapsibleGroups.has(group) ? (
+                <button type="button" onClick={() => toggleGroup(group)} aria-expanded={groupOpen(group)}
+                  className="flex w-full items-center justify-between rounded-lg px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-khaki/80 hover:bg-white/10 hover:text-cream">
+                  <span>{group}</span>
+                  <ChevronDown size={14} className={`transition-transform ${groupOpen(group) ? '' : '-rotate-90'}`} />
+                </button>
+              ) : group !== 'Overview' ? <div className="px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-khaki/70">{group}</div> : null}
+              {(!collapsibleGroups.has(group) || groupOpen(group)) && items.filter((item) => item.group === group).map((item) => (
                 <NavLink
                   key={item.to + item.label}
                   to={item.to}

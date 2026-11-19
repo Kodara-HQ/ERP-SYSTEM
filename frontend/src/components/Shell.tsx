@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Bell, ChevronDown, ChevronRight, LogOut, Menu, Search, X } from 'lucide-react';
 
-/** Sidebar groups that expand and collapse. */
-const collapsibleGroups = new Set(['Farm Operations']);
+/** Sidebar groups that expand and collapse. Each opens on its own when you are on one of its pages. */
+const collapsibleGroups = new Set(['Approvals', 'Procurement', 'Inventory', 'Finance', 'Operations', 'Farm Operations']);
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { SiteFooter } from './SiteFooter';
 import { useQuery } from '@tanstack/react-query';
@@ -73,13 +73,24 @@ export function Shell() {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
     try { return JSON.parse(window.localStorage.getItem('bajogo.nav.collapsed') ?? '{}') as Record<string, boolean>; } catch { return {}; }
   });
-  // A collapsible group opens on its own pages unless the person closed it while there.
-  const groupOpen = (group: string) => collapsed[group] === undefined ? location.pathname.startsWith('/farm') : !collapsed[group];
-  function toggleGroup(group: string) {
-    const next = { ...collapsed, [group]: groupOpen(group) };
+  // The group holding the current page; the longest matching link wins (so /farm/daily belongs to Farm Operations).
+  const activeGroup = items
+    .filter((item) => location.pathname === item.to || (item.to !== '/' && location.pathname.startsWith(`${item.to}/`)))
+    .sort((left, right) => right.to.length - left.to.length)[0]?.group;
+  // Groups start closed, except the one you are working in. Opening or closing one is remembered.
+  const groupOpen = (group: string) => (collapsed[group] === undefined ? group === activeGroup : !collapsed[group]);
+  function remember(next: Record<string, boolean>) {
     setCollapsed(next);
     try { window.localStorage.setItem('bajogo.nav.collapsed', JSON.stringify(next)); } catch { /* storage may be unavailable */ }
   }
+  function toggleGroup(group: string) {
+    remember({ ...collapsed, [group]: groupOpen(group) });
+  }
+  // Moving to a page always shows its group, even if it was closed earlier.
+  useEffect(() => {
+    if (activeGroup && collapsed[activeGroup]) remember({ ...collapsed, [activeGroup]: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeGroup, location.pathname]);
   const search = useQuery({
     queryKey: ['search', query],
     enabled: query.trim().length >= 2,

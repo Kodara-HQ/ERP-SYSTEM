@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import type { Bootstrap, Picture, Settings } from './types';
 
@@ -253,6 +253,46 @@ function SiteFooter({ settings, commodities, place }: { settings: Settings; comm
   );
 }
 
+// Drop-down in the main menu. On a desktop it opens while the pointer is over it and closes
+// as soon as the pointer moves to another item; a click toggles it on touch screens.
+// It also closes on a click elsewhere, on Escape, and when a page is chosen.
+function NavMenu({ label, active, resetKey, children }: { label: string; active: boolean; resetKey: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const timer = useRef<number | undefined>(undefined);
+  const hoverable = () => window.matchMedia('(hover: hover) and (min-width: 1024px)').matches;
+
+  useEffect(() => { setOpen(false); }, [resetKey]);
+  useEffect(() => {
+    if (!open) return undefined;
+    const outside = (event: PointerEvent) => { if (!box.current?.contains(event.target as Node)) setOpen(false); };
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false); };
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('keydown', escape);
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
+  }, [open]);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+
+  const enter = () => { if (!hoverable()) return; window.clearTimeout(timer.current); setOpen(true); };
+  const leave = () => { if (!hoverable()) return; window.clearTimeout(timer.current); timer.current = window.setTimeout(() => setOpen(false), 120); };
+
+  return (
+    <div ref={box} className="relative" onMouseEnter={enter} onMouseLeave={leave}
+      onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setOpen(false); }}>
+      <button type="button" aria-expanded={open} aria-haspopup="true" onClick={() => setOpen((value) => !value)}
+        className={`flex w-full items-center gap-1 rounded-full px-3 py-2 text-left text-sm font-semibold transition hover:bg-mist ${active ? 'text-forest' : 'text-ink'}`}>
+        {label}
+        <svg viewBox="0 0 20 20" className={`h-4 w-4 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} aria-hidden="true"><path d="M5 8l5 5 5-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      </button>
+      {open ? (
+        <div className="z-20 grid min-w-52 rounded-2xl border border-forest/10 bg-white p-2 shadow-card lg:absolute lg:left-0 lg:top-full lg:mt-1">
+          {children}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function SiteFrame({ boot, children }: { boot: Bootstrap; children: ReactNode }) {
   const { settings, commodities } = boot;
   const location = useLocation();
@@ -296,16 +336,13 @@ export function SiteFrame({ boot, children }: { boot: Bootstrap; children: React
             <nav className={`${open ? 'absolute inset-x-0 top-full grid gap-1 border-b bg-white p-4 shadow-card' : 'hidden'} lg:static lg:ml-auto lg:flex lg:items-center lg:gap-1 lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none`}>
               <NavLink to="/" end className={navClass}>Home</NavLink>
               <NavLink to="/about" className={navClass}>About Us</NavLink>
-              <details className="relative">
-                <summary className="cursor-pointer list-none rounded-full px-3 py-2 text-sm font-semibold text-ink hover:bg-mist">Agricultural Commodities</summary>
-                <div className="z-20 mt-1 grid min-w-52 rounded-2xl border border-forest/10 bg-white p-2 shadow-card lg:absolute">
-                  <Link className="rounded-xl px-3 py-2 text-sm hover:bg-mist" to="/commodities">All commodities</Link>
-                  {commodities.map((item) => (
-                    <Link key={item.slug} className="rounded-xl px-3 py-2 text-sm hover:bg-mist" to={`/commodities/${item.slug}`}>{item.name}</Link>
-                  ))}
-                  <Link className="rounded-xl px-3 py-2 text-sm hover:bg-mist" to="/commodities?category=other">Other Commodities</Link>
-                </div>
-              </details>
+              <NavMenu label="Agricultural Commodities" active={location.pathname.startsWith('/commodities')} resetKey={location.pathname + location.search}>
+                <Link className="rounded-xl px-3 py-2 text-sm hover:bg-mist" to="/commodities">All commodities</Link>
+                {commodities.map((item) => (
+                  <Link key={item.slug} className="rounded-xl px-3 py-2 text-sm hover:bg-mist" to={`/commodities/${item.slug}`}>{item.name}</Link>
+                ))}
+                <Link className="rounded-xl px-3 py-2 text-sm hover:bg-mist" to="/commodities?category=other">Other Commodities</Link>
+              </NavMenu>
               <NavLink to="/gold-buying" className={navClass}>Gold Buying</NavLink>
               <NavLink to="/haulage" className={navClass}>Haulage & Logistics</NavLink>
               <NavLink to="/news" className={navClass}>News & Updates</NavLink>

@@ -22,9 +22,29 @@ Nginx is the only thing that listens on the public IP (ports 80 and 443). It rea
 
 Replace `erp.example.com` with your subdomain and `4100` with a free port throughout.
 
+### The public website on the same server
+
+The company website (`website/`) runs on the same server and the same API process. It needs no extra service, port or database:
+
+```
+ www.example.com ─┐   Nginx ─┬─ www.example.com → website/dist  + /api/v1/public → :4100
+ example.com ─────┘          │    (example.com redirects to www)
+ erp.example.com ────────────┴─ erp.example.com → frontend/dist + /api          → :4100
+```
+
+The website's domain only reaches the public website routes (`/api/v1/public/…`). Staff sign-in and ERP data are served on the ERP subdomain alone. Website content is edited in the ERP under **Website management**.
+
 ## 1. DNS
 
-At your domain registrar, add an **A record**: name `erp`, value = the server's public IP. Wait until `ping erp.example.com` answers with that IP.
+At your domain registrar, add **A records** pointing to the server's public IP:
+
+| Name | Purpose |
+| --- | --- |
+| `erp` | The ERP |
+| `@` (the bare domain) | The website (redirects to `www`) |
+| `www` | The website |
+
+Wait until `ping erp.example.com` and `ping www.example.com` answer with that IP.
 
 ## 2. Check what is already on the server
 
@@ -69,7 +89,7 @@ sudo -u bajogo nano /srv/bajogo-erp/.env
 sudo chmod 600 /srv/bajogo-erp/.env
 ```
 
-Fill in the database password, the domain in `CLIENT_ORIGIN`, the port, and a new `JWT_ACCESS_SECRET`.
+Fill in the database password, the domain in `CLIENT_ORIGIN`, the port, and a new `JWT_ACCESS_SECRET`. Set `ERP_PUBLIC_URL` to the ERP address and `WEBSITE_PUBLIC_URL` to the website address (`https://www.example.com`); the website's Staff Login link, sitemap and robots.txt use them.
 
 ## 7. Build, migrate, seed
 
@@ -83,6 +103,8 @@ sudo -u bajogo node dist/database/seed.js
 ```
 
 The seed prints the first administrator's temporary password and saves it in `backend/.credentials/`. Run it **once only**.
+
+`npm run build` builds the API, the ERP (`frontend/dist`) and the website (`website/dist`). Migrating also loads the website's opening pages and photographs from `backend/assets/website/`; running it again later never overwrites content staff have edited.
 
 ## 8. Start the API as a service
 
@@ -106,6 +128,26 @@ sudo certbot --nginx -d erp.example.com
 ```
 
 `nginx -t` checks every site file, including your other apps, before reloading, so a mistake won't take them down. Certbot adds HTTPS and renews it automatically.
+
+### The website
+
+```bash
+sudo cp /srv/bajogo-erp/deploy/nginx/bajogo-website.conf /etc/nginx/sites-available/bajogo-website
+sudo nano /etc/nginx/sites-available/bajogo-website  # set the domain (3 places) and port
+sudo ln -s /etc/nginx/sites-available/bajogo-website /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+sudo certbot --nginx -d example.com -d www.example.com
+```
+
+Check it:
+
+```bash
+curl -s https://www.example.com/api/v1/public/website/bootstrap | head -c 200   # website content
+curl -s -o /dev/null -w "%{http_code}\n" https://www.example.com/api/v1/auth/me  # 404: staff API not exposed here
+curl -s https://www.example.com/robots.txt
+```
+
+Then sign in to the ERP, open **Website management → Settings**, and enter the company telephone, email, address and social links. They appear on the website straight away.
 
 ## 10. Firewall
 
@@ -150,4 +192,4 @@ Then each update is:
 sudo -u bajogo bash /srv/bajogo-erp/deploy/update.sh
 ```
 
-It pulls, builds, backs up the database, migrates, and restarts the API.
+It pulls, builds, backs up the database, migrates, and restarts the API. The rebuilt ERP and website files are served by Nginx at once; no Nginx reload is needed.

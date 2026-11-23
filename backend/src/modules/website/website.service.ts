@@ -5,6 +5,7 @@ import type { RowDataPacket } from '../../database/rows';
 import { execute, query, queryOne, scalar, withTransaction } from '../../database/query';
 import { env } from '../../config/env';
 import { writeAudit } from '../../services/auditService';
+import { mailConfigured, sendMail } from '../../services/mail';
 import { HttpError, notFound } from '../../utils/httpError';
 import type {
   applicationSchema,
@@ -585,7 +586,73 @@ export async function submitEnquiry(input: EnquiryInput, meta: { ipAddress: stri
     });
     return result.insertId;
   });
-  return { accepted: true, id: created };
+  const confirmationSent = await sendEnquiryEmails(created, input);
+  return { accepted: true, id: created, confirmationSent };
+}
+
+function enquiryReference(id: number) {
+  return `ENQ-${String(id).padStart(5, '0')}`;
+}
+
+/** Confirms receipt to the customer and tells the company inbox. Returns whether the customer's copy was sent. */
+async function sendEnquiryEmails(id: number, input: EnquiryInput): Promise<boolean> {
+  if (!mailConfigured()) return false;
+  const settings = await loadSettings().catch(() => null);
+  const company = settings?.tradingName || 'BAJOGO ENTERPRISE';
+  const reference = enquiryReference(id);
+  const contactLines = [settings?.phone ? `Phone: ${settings.phone}` : null, settings?.email ? `Email: ${settings.email}` : null, `Website: ${env.websitePublicUrl}`].filter(Boolean).join('\n');
+
+  const confirmation = sendMail({
+    to: input.email,
+    replyTo: settings?.email || undefined,
+    subject: `We have received your enquiry (${reference})`,
+    text: [
+      `Dear ${input.fullName},`,
+      '',
+      `Thank you for contacting ${company}. We have received your enquiry and a member of our team will get back to you as soon as possible.`,
+      '',
+      `Reference: ${reference}`,
+      `Subject: ${input.subject}`,
+      input.productOrService ? `Product or service: ${input.productOrService}` : null,
+      '',
+      'Your message:',
+      input.message,
+      '',
+      'If you need to add anything, simply reply to this email and quote the reference above.',
+      '',
+      'Kind regards,',
+      company,
+      contactLines,
+    ].filter((line) => line !== null).join('\n'),
+  });
+
+  const notifyTo = env.mail.enquiryNotifyTo || settings?.email;
+  const notification = notifyTo
+    ? sendMail({
+        to: notifyTo,
+        replyTo: input.email,
+        subject: `New website enquiry ${reference}: ${input.subject}`,
+        text: [
+          'A new enquiry was sent from the website.',
+          '',
+          `Reference: ${reference}`,
+          `Name: ${input.fullName}`,
+          input.companyName ? `Company: ${input.companyName}` : null,
+          `Email: ${input.email}`,
+          input.telephone ? `Telephone: ${input.telephone}` : null,
+          `Topic: ${input.category}`,
+          input.productOrService ? `Product or service: ${input.productOrService}` : null,
+          `Subject: ${input.subject}`,
+          '',
+          input.message,
+          '',
+          `Reply to this email to answer the customer, and mark the enquiry as handled in the ERP: ${env.erpPublicUrl}/website`,
+        ].filter((line) => line !== null).join('\n'),
+      })
+    : Promise.resolve(false);
+
+  const [sent] = await Promise.all([confirmation, notification]);
+  return sent;
 }
 
 export async function submitApplication(slug: string, input: ApplicationInput, meta: { ipAddress: string | null; userAgent: string | null }) {

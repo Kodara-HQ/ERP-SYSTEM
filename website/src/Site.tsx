@@ -406,7 +406,9 @@ export function EnquiryForm({ category, product, heading = 'Send an enquiry' }: 
     event.preventDefault();
     setError('');
     setDone('');
-    const form = new FormData(event.currentTarget);
+    // Keep the element: React clears event.currentTarget once the handler awaits.
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     setPending(true);
     try {
       const response = await fetch('/api/v1/public/website/enquiries', {
@@ -426,8 +428,10 @@ export function EnquiryForm({ category, product, heading = 'Send an enquiry' }: 
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(payload?.error?.message ?? 'The enquiry could not be sent.');
-      setDone('Your enquiry has been received. Authorised staff will read it in the ERP.');
-      event.currentTarget.reset();
+      setDone(payload?.data?.confirmationSent
+        ? `Your enquiry has been received and we will get back to you shortly. A confirmation has been sent to ${String(form.get('email'))}.`
+        : 'Your enquiry has been received and we will get back to you shortly.');
+      formElement.reset();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'The enquiry could not be sent.');
     } finally {

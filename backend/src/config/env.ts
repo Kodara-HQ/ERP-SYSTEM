@@ -86,6 +86,18 @@ export const env = {
     hubtelClientId: optional('HUBTEL_SMS_CLIENT_ID'),
     hubtelClientSecret: optional('HUBTEL_SMS_CLIENT_SECRET'),
   },
+  // Email. With SMTP_HOST set, mail is sent through that server; otherwise it is only written to the log.
+  mail: {
+    provider: (nodeEnv !== 'test' && optional('SMTP_HOST') ? 'smtp' : 'log') as 'smtp' | 'log',
+    host: optional('SMTP_HOST'),
+    port: Number(optional('SMTP_PORT', '587')),
+    secure: optional('SMTP_SECURE', optional('SMTP_PORT', '587') === '465' ? 'true' : 'false') === 'true',
+    user: optional('SMTP_USER'),
+    password: optional('SMTP_PASSWORD'),
+    from: optional('MAIL_FROM'),
+    // Where new website enquiries are reported. Falls back to the email in Website settings.
+    enquiryNotifyTo: optional('ENQUIRY_NOTIFY_EMAIL'),
+  },
   bcryptRounds: Number(optional('BCRYPT_ROUNDS', nodeEnv === 'test' ? '4' : '12')),
   seed: {
     adminUsername: optional('SEED_ADMIN_USERNAME', 'sysadmin').toLowerCase(),
@@ -104,6 +116,10 @@ if (env.sms.provider === 'arkesel' && !env.sms.arkeselApiKey) {
 
 if (env.sms.provider === 'hubtel' && (!env.sms.hubtelClientId || !env.sms.hubtelClientSecret)) {
   throw new Error('HUBTEL_SMS_CLIENT_ID and HUBTEL_SMS_CLIENT_SECRET are required when SMS_PROVIDER is hubtel.');
+}
+
+if (env.mail.provider === 'smtp' && !env.mail.from) {
+  throw new Error('MAIL_FROM is required when SMTP_HOST is set, for example "BAJOGO ENTERPRISE <info@bajogoenterprise.com>".');
 }
 
 if (!/^[A-Za-z0-9 ]{1,11}$/.test(env.sms.senderId)) {

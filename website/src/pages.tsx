@@ -970,7 +970,8 @@ export function JobPage() {
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError('');
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const file = form.get('cv');
     let cv = null;
     if (file instanceof File && file.size > 0) {
@@ -995,7 +996,7 @@ export function JobPage() {
       return;
     }
     setDone('Your application has been received by human resources.');
-    event.currentTarget.reset();
+    formElement.reset();
   }
 
   return (

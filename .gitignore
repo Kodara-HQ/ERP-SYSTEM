@@ -10,6 +10,7 @@ coverage/
 Thumbs.db
 backend/.credentials/
 frontend/dist/
+website/dist/
 .vite/
 *.tsbuildinfo
 uploads/

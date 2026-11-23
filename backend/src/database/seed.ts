@@ -15,6 +15,7 @@ import {
 import { segregationCatalog } from '../services/governance';
 import { ensureAllManagerEmployees } from '../services/managerEmployees';
 import { departmentWorkspaces, initialDepartments, initialPositions, permissionCatalog, roleCatalog } from './rbacCatalog';
+import { seedWebsiteContent } from '../modules/website/website.seed';
 import { hashPassword } from '../utils/password';
 import { logger } from '../utils/logger';
 import type { RowDataPacket } from './rows';
@@ -157,6 +158,7 @@ export async function seedFoundation(): Promise<void> {
   await seedFarmStockCategories();
   await seedLeaveTypes();
   await seedLedger();
+  await seedWebsiteContent();
 }
 
 export async function seedLeaveTypes(): Promise<void> {

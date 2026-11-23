@@ -17,6 +17,14 @@ function optional(name: string, fallback = ''): string {
   return value === undefined ? fallback : value.trim();
 }
 
+function origin(name: string, fallback: string): string {
+  const value = optional(name, fallback).replace(/\/$/, '');
+  if (!/^https?:\/\/[A-Za-z0-9.-]+(?::\d+)?$/i.test(value)) {
+    throw new Error(`${name} must be an origin such as ${fallback}.`);
+  }
+  return value;
+}
+
 function ttlToSeconds(value: string): number {
   const match = /^(\d+)([smhd])$/.exec(value);
   if (!match) {
@@ -53,6 +61,8 @@ export const env = {
   // Set HOST=127.0.0.1 behind a reverse proxy so the API is not reachable directly from outside.
   host: optional('HOST', '0.0.0.0') || '0.0.0.0',
   clientOrigin: optional('CLIENT_ORIGIN', 'http://localhost:5173'),
+  erpPublicUrl: origin('ERP_PUBLIC_URL', 'http://127.0.0.1:5173'),
+  websitePublicUrl: origin('WEBSITE_PUBLIC_URL', 'http://127.0.0.1:5174'),
   trustProxy: optional('TRUST_PROXY', 'false') === 'true',
   db: {
     host: optional('DB_HOST', '127.0.0.1'),

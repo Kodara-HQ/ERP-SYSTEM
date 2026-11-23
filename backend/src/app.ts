@@ -28,6 +28,7 @@ import { governanceRouter } from './modules/governance/governance.routes';
 import { managementRouter } from './modules/management/management.routes';
 import { registersRouter } from './modules/registers/registers.routes';
 import { farmRouter } from './modules/farm/farm.routes';
+import { websitePublicRouter, websiteRouter } from './modules/website/website.routes';
 
 export function createApp() {
   const app = express();
@@ -41,7 +42,7 @@ export function createApp() {
   }));
   const smallJson = express.json({ limit: '1mb' });
   const documentJson = express.json({ limit: '8mb' });
-  app.use((req, res, next) => (/\/(documents|import)\/?$/.test(req.path) ? documentJson : smallJson)(req, res, next));
+  app.use((req, res, next) => (/\/(documents|import|media)\/?$/.test(req.path) || /\/applications\/?$/.test(req.path) ? documentJson : smallJson)(req, res, next));
   app.use(cookieParser());
 
   if (!env.isTest) {
@@ -90,6 +91,8 @@ export function createApp() {
   app.use('/api/v1/management', managementRouter);
   app.use('/api/v1/registers', registersRouter);
   app.use('/api/v1/farm', farmRouter);
+  app.use('/api/v1/public/website', websitePublicRouter);
+  app.use('/api/v1/website', websiteRouter);
 
   app.use(errorHandler);
   return app;

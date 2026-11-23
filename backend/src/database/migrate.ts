@@ -4,6 +4,7 @@ import pg from 'pg';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
 import { translateMigration } from './dialect';
+import { seedWebsiteContent } from '../modules/website/website.seed';
 
 const migrationsDir = path.resolve(__dirname, '../../migrations');
 
@@ -101,6 +102,7 @@ export async function migrate(): Promise<void> {
   } finally {
     await client.end();
   }
+  await seedWebsiteContent();
 }
 
 if (require.main === module) {
@@ -108,6 +110,10 @@ if (require.main === module) {
     .then(() => migrate())
     .catch((error: unknown) => {
       logger.error('Migration failed.', { message: error instanceof Error ? error.message : 'Unknown error' });
-      process.exit(1);
+      process.exitCode = 1;
+    })
+    .finally(async () => {
+      const { pool } = await import('./pool');
+      await pool.end();
     });
 }

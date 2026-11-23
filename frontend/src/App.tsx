@@ -26,6 +26,7 @@ import { ReportsPage } from './pages/ReportsPage';
 import { PayrollPage } from './pages/PayrollPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { WorkflowsPage } from './pages/WorkflowsPage';
+import { WebsiteAdminPage, WebsiteApplicationsPage, WebsiteEnquiriesPage } from './pages/WebsiteAdmin';
 
 function Guard({ children }: { children: ReactNode }) {
   const { user, ready } = useAuth();
@@ -105,6 +106,9 @@ export function App() {
         <Route path="/admin/roles" element={<RolesPage />} />
         <Route path="/admin/audit" element={<AuditPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/website" element={<WebsiteAdminPage />} />
+        <Route path="/website/enquiries" element={<WebsiteEnquiriesPage />} />
+        <Route path="/website/applications" element={<WebsiteApplicationsPage />} />
       </Route>
     </Routes>
   );

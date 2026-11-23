@@ -43,6 +43,8 @@ import {
   Inbox,
   Siren,
   Route,
+  Globe,
+  Mail,
   FileBarChart,
   Target,
   Gauge,
@@ -131,6 +133,9 @@ export const navigation: NavItem[] = [
   { group: 'Administration', label: 'User accounts', to: '/admin/users', icon: Shield, permission: 'users.view', workspace: 'administration' },
   { group: 'Administration', label: 'Roles', to: '/admin/roles', icon: ClipboardList, permission: 'roles.view', workspace: 'administration' },
   { group: 'Administration', label: 'Audit log', to: '/admin/audit', icon: ScrollText, permission: 'audit.view', workspace: 'administration' },
+  { group: 'Website', label: 'Website management', to: '/website', icon: Globe, permission: 'website.view', workspace: 'website', end: true },
+  { group: 'Website', label: 'Customer enquiries', to: '/website/enquiries', icon: Mail, permission: 'website.enquiries', workspace: 'website' },
+  { group: 'HR', label: 'Website applications', to: '/website/applications', icon: UserPlus, permission: 'hr.view', workspace: 'hr' },
   { group: 'Settings', label: 'Profile', to: '/settings', icon: UserRound, permission: 'profile.view' },
 ];
 

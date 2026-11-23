@@ -10,6 +10,7 @@ const conflictTargets: Record<string, string> = {
   ledger_accounts: '(company_id, code)',
   cash_accounts: '(company_id, code)',
   department_workspaces: '(department_id, workspace_code)',
+  website_product_images: '(product_id, media_id)',
   leave_balances: '(employee_id, leave_type_id, balance_year)',
   attendance_records: '(employee_id, work_date)',
   exit_records: '(employee_id)',

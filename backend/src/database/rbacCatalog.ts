@@ -82,6 +82,10 @@ export const permissionCatalog: PermissionSeed[] = [
   ['targets.manage', 'targets', 'edit', 'Set and update departmental targets', 'standard'],
   ['assessments.manage', 'assessments', 'edit', 'Assess the performance of employees in your department', 'confidential'],
   ['announcements.manage', 'announcements', 'edit', 'Publish company announcements on the company dashboard', 'standard'],
+  ['website.view', 'website', 'view', 'View website content, including drafts', 'standard'],
+  ['website.edit', 'website', 'edit', 'Draft and edit website content and upload images', 'standard'],
+  ['website.publish', 'website', 'approve', 'Approve, publish, and unpublish website content', 'standard'],
+  ['website.enquiries', 'website', 'view', 'Read and update customer enquiries from the website', 'standard'],
   ['support.request', 'it', 'submit', 'Raise an IT support request', 'standard'],
   ['it.view', 'it', 'view', 'View IT support, backups, infrastructure, and integrations', 'standard'],
   ['it.manage', 'it', 'edit', 'Maintain IT support, backups, infrastructure, and integrations', 'standard'],
@@ -153,6 +157,10 @@ export const roleCatalog: RoleSeed[] = [
       'reports.review',
       'targets.manage',
       'announcements.manage',
+      'website.view',
+      'website.edit',
+      'website.publish',
+      'website.enquiries',
       'it.view',
       'marketing.view',
       'farm.view',
@@ -244,7 +252,7 @@ export const roleCatalog: RoleSeed[] = [
     isTechnicalAdmin: false,
     canApproveExpenditure: false,
     hasFinalBusinessAuthority: false,
-    permissions: [...manager, 'it.view', 'it.manage', 'marketing.view', 'marketing.manage'],
+    permissions: [...manager, 'it.view', 'it.manage', 'marketing.view', 'marketing.manage', 'website.view', 'website.edit', 'website.publish', 'website.enquiries'],
   },
   {
     code: 'IT_OFFICER',
@@ -262,7 +270,7 @@ export const roleCatalog: RoleSeed[] = [
     isTechnicalAdmin: false,
     canApproveExpenditure: false,
     hasFinalBusinessAuthority: false,
-    permissions: [...operational, 'marketing.view', 'marketing.manage'],
+    permissions: [...operational, 'marketing.view', 'marketing.manage', 'website.view', 'website.edit', 'website.enquiries'],
   },
   {
     code: 'PROCUREMENT_OFFICER',
@@ -370,9 +378,9 @@ export const departmentWorkspaces: Record<string, string[]> = {
   'OPS-PROCESS': ['operations', 'inventory', 'people'],
   FIN: ['finance', 'people'],
   LEG: ['legal', 'people'],
-  ITM: ['it', 'marketing', 'people'],
+  ITM: ['it', 'marketing', 'people', 'website'],
   'ITM-IT': ['it', 'people'],
-  'ITM-MKT': ['marketing', 'people'],
+  'ITM-MKT': ['marketing', 'people', 'website'],
 };
 
 export const initialDepartments: Array<{ code: string; name: string; parentCode: string | null }> = [

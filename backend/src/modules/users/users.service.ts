@@ -9,6 +9,7 @@ import type { AuthContext } from '../../types/auth';
 import { HttpError, notFound } from '../../utils/httpError';
 import { hashPassword } from '../../utils/password';
 import { likeTerm, limitOffset, pageMeta, type PageQuery } from '../../utils/pagination';
+import { setPassword } from '../auth/passwordReset.service';
 
 type Actor = { userId: number; ipAddress: string | null; userAgent: string | null };
 
@@ -345,6 +346,38 @@ export async function removeRole(_auth: AuthContext, userId: number, userRoleId:
       userAgent: actor.userAgent,
     });
     return { removed: true };
+  });
+}
+
+/**
+ * An administrator sets a temporary password for someone who has forgotten theirs. The person must replace it
+ * at the next sign-in. Your own password is changed under Account > Password instead.
+ */
+export async function resetUserPassword(auth: AuthContext, userId: number, temporaryPassword: string, actor: Actor) {
+  if (userId === auth.userId) {
+    throw new HttpError(403, 'Change your own password from your account menu.', 'SELF_RESET_DENIED');
+  }
+  const passwordHash = await hashPassword(temporaryPassword);
+  return withTransaction(async (connection) => {
+    const target = await queryOne<RowDataPacket>(connection, 'SELECT id, username, status FROM users WHERE id = ? FOR UPDATE', [userId]);
+    if (!target) throw notFound('User');
+    await setPassword(connection, userId, passwordHash, true);
+    await execute(
+      connection,
+      `UPDATE password_reset_requests SET status = 'completed', handled_by = ?, completed_at = UTC_TIMESTAMP(3) WHERE user_id = ? AND status = 'open'`,
+      [actor.userId, userId],
+    );
+    await writeAudit(connection, {
+      userId: actor.userId,
+      action: 'user.password_reset',
+      module: 'users',
+      entityType: 'user',
+      entityId: userId,
+      newValue: { username: target.username, mustChangePassword: true },
+      ipAddress: actor.ipAddress,
+      userAgent: actor.userAgent,
+    });
+    return { reset: true, username: String(target.username), status: String(target.status) === 'locked' ? 'active' : String(target.status) };
   });
 }
 

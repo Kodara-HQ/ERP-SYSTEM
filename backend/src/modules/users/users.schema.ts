@@ -19,6 +19,10 @@ export const userUpdateSchema = z.object({
   employeeId: z.number().int().positive().nullable().optional(),
 });
 
+export const passwordResetSchema = z.object({
+  temporaryPassword: passwordSchema,
+});
+
 export const roleAssignmentSchema = z.object({
   roleId: z.number().int().positive(),
   scopeType: z.enum(['global', 'branch', 'department', 'own']),

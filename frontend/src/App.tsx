@@ -4,7 +4,7 @@ import { Shell } from './components/Shell';
 import { useAuth } from './lib/auth';
 import { ApprovalDetailPage, ApprovalsPage } from './pages/ApprovalsPage';
 import { AuditPage } from './pages/AuditPage';
-import { LoginPage, PasswordPage } from './pages/AuthPages';
+import { ForgotPasswordPage, LoginPage, PasswordPage, ResetPasswordPage } from './pages/AuthPages';
 import { ChangeRequestsPage } from './pages/ChangeRequestsPage';
 import { CompanyPage } from './pages/CompanyPage';
 import { DashboardPage } from './pages/DashboardPage';
@@ -42,6 +42,8 @@ export function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/account/password" element={<PasswordPage />} />
       <Route path="/privacy" element={<PrivacyPage />} />
       <Route path="/terms" element={<TermsPage />} />

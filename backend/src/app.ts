@@ -54,6 +54,15 @@ export function createApp() {
       message: { error: { message: 'Too many attempts. Try again later.', code: 'RATE_LIMITED' } },
     });
     app.use('/api/v1/auth/login', authLimiter);
+    // Forgotten-password requests and reset links get their own, stricter limit.
+    const resetLimiter = rateLimit({
+      windowMs: 15 * 60 * 1000,
+      max: 10,
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: { error: { message: 'Too many attempts. Try again later.', code: 'RATE_LIMITED' } },
+    });
+    app.use(['/api/v1/auth/forgot-password', '/api/v1/auth/reset-password'], resetLimiter);
   }
 
   app.get('/api/v1/health', async (_req, res, next) => {

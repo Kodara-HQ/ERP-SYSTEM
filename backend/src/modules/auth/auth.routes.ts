@@ -4,9 +4,39 @@ import { validate } from '../../middleware/validate';
 import { requestMeta } from '../../services/auditService';
 import { HttpError } from '../../utils/httpError';
 import { REFRESH_COOKIE, changePassword, clearAuthCookies, login, logout, publicProfile, refresh, setAuthCookies } from './auth.service';
-import { changePasswordSchema, loginSchema } from './auth.schema';
+import { changePasswordSchema, forgotPasswordSchema, loginSchema, resetPasswordSchema, resetTokenSchema } from './auth.schema';
+import { checkResetToken, completePasswordReset, requestPasswordReset, resetMethod } from './passwordReset.service';
 
 export const authRouter = Router();
+
+/** Tells the sign-in page how a forgotten password is handled (emailed link, or an administrator). */
+authRouter.get('/password-reset', (_req, res) => {
+  res.json({ data: { method: resetMethod() } });
+});
+
+authRouter.post('/forgot-password', validate({ body: forgotPasswordSchema }), async (req, res, next) => {
+  try {
+    res.json({ data: await requestPasswordReset(req.body.identifier, requestMeta(req)) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+authRouter.post('/reset-password/check', validate({ body: resetTokenSchema }), async (req, res, next) => {
+  try {
+    res.json({ data: await checkResetToken(req.body.token) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+authRouter.post('/reset-password', validate({ body: resetPasswordSchema }), async (req, res, next) => {
+  try {
+    res.json({ data: await completePasswordReset(req.body.token, req.body.newPassword, requestMeta(req)) });
+  } catch (error) {
+    next(error);
+  }
+});
 
 authRouter.post('/login', validate({ body: loginSchema }), async (req, res, next) => {
   try {

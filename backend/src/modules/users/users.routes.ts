@@ -4,8 +4,9 @@ import { requireAuth, requirePermission } from '../../middleware/authenticate';
 import { requireWorkspace } from '../../services/workspaces';
 import { validate } from '../../middleware/validate';
 import { requestMeta } from '../../services/auditService';
-import { idParamSchema, roleAssignmentSchema, userCreateSchema, userListSchema, userRoleParamSchema, userUpdateSchema } from './users.schema';
-import { assignRole, createUser, listDirectory, listUserRoles, listUsers, removeRole, updateUser } from './users.service';
+import { listResetRequests } from '../auth/passwordReset.service';
+import { idParamSchema, passwordResetSchema, roleAssignmentSchema, userCreateSchema, userListSchema, userRoleParamSchema, userUpdateSchema } from './users.schema';
+import { assignRole, createUser, listDirectory, listUserRoles, listUsers, removeRole, resetUserPassword, updateUser } from './users.service';
 
 export const usersRouter = Router();
 usersRouter.use(requireAuth, requireWorkspace('administration'));
@@ -20,6 +21,14 @@ usersRouter.post('/', requirePermission('users.manage'), validate({ body: userCr
 
 usersRouter.patch('/:id', requirePermission('users.manage'), validate({ params: idParamSchema, body: userUpdateSchema }), asyncRoute(async (req, res) => {
   res.json({ data: await updateUser(req.auth!, Number(req.params.id), req.body, { userId: req.auth!.userId, ...requestMeta(req) }) });
+}));
+
+usersRouter.get('/password-requests', requirePermission('users.manage'), asyncRoute(async (_req, res) => {
+  res.json({ data: await listResetRequests() });
+}));
+
+usersRouter.post('/:id/reset-password', requirePermission('users.manage'), validate({ params: idParamSchema, body: passwordResetSchema }), asyncRoute(async (req, res) => {
+  res.json({ data: await resetUserPassword(req.auth!, Number(req.params.id), req.body.temporaryPassword, { userId: req.auth!.userId, ...requestMeta(req) }) });
 }));
 
 usersRouter.get('/:id/roles', requirePermission('users.view', 'users.manage'), validate({ params: idParamSchema }), asyncRoute(async (req, res) => {

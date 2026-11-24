@@ -150,15 +150,24 @@ function roleBody(values: { roleId: string; scopeType: Scope; scopeId: string; r
   };
 }
 
+interface ResetRequest { id: number; userId: number; username: string; email: string; requestedAt: string }
+
 export function UsersPage() {
-  const { can } = useAuth();
+  const { can, user: me } = useAuth();
   const canManage = can('users.manage');
   const client = useQueryClient();
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<number | null>(null);
   const [panelError, setPanelError] = useState('');
+  const [resetFor, setResetFor] = useState<UserRow | null>(null);
 
   const users = useQuery({ queryKey: ['users'], queryFn: () => api<{ data: UserRow[] }>('/v1/users?pageSize=200') });
+  const resetRequests = useQuery({
+    queryKey: ['password-requests'],
+    enabled: canManage,
+    retry: false,
+    queryFn: () => api<{ data: ResetRequest[] }>('/v1/users/password-requests'),
+  });
   const roles = useQuery({ queryKey: ['roles'], queryFn: () => api<{ data: RoleOption[] }>('/v1/roles') });
   const employees = useQuery({
     queryKey: ['employee-options-for-accounts'],
@@ -181,7 +190,11 @@ export function UsersPage() {
   );
   const selectedUser = users.data?.data.find((user) => user.id === selected) ?? null;
 
-  const refreshUsers = () => client.invalidateQueries({ queryKey: ['users'] });
+  const refreshUsers = () => Promise.all([
+    client.invalidateQueries({ queryKey: ['users'] }),
+    client.invalidateQueries({ queryKey: ['password-requests'] }),
+  ]);
+  const pendingResets = resetRequests.data?.data ?? [];
 
   return (
     <section>
@@ -190,6 +203,29 @@ export function UsersPage() {
         description="An account is how a person signs in. Link it to their employee record, then give it a role: the role decides what they can see and do. New accounts get a temporary password that must be changed at first sign-in."
         action={canManage ? <Button onClick={() => setOpen(true)}>Create account</Button> : null}
       />
+      {pendingResets.length ? (
+        <div className="mb-4 rounded-lg border border-[#E6C36A] bg-[#FFF8E6] p-4">
+          <h2 className="text-sm font-semibold text-ink">Password reset requests</h2>
+          <p className="mt-1 text-xs text-slate-600">These people used "Forgot password?" on the sign-in page. Check who is asking before you reset, then give them the temporary password in person or by phone.</p>
+          <ul className="mt-3 grid gap-2">
+            {pendingResets.map((request) => {
+              const account = users.data?.data.find((user) => user.id === request.userId);
+              return (
+                <li key={request.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-white px-3 py-2 text-sm">
+                  <div>
+                    <span className="font-semibold">{request.username}</span>
+                    {account?.employeeName ? <span className="text-slate-500"> · {account.employeeName}</span> : null}
+                    <div className="text-xs text-slate-500">Asked {new Date(request.requestedAt).toLocaleString()}</div>
+                  </div>
+                  {account && account.id !== me?.id ? (
+                    <Button variant="secondary" className="h-8" onClick={() => setResetFor(account)}>Reset password</Button>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : null}
       <div className="grid gap-4 lg:grid-cols-[1.4fr_0.8fr]">
         <div className="overflow-x-auto rounded-lg border border-line bg-white">
           <table className="min-w-full text-left text-sm">
@@ -248,6 +284,7 @@ export function UsersPage() {
               error={panelError}
               setError={setPanelError}
               onChanged={refreshUsers}
+              onResetPassword={selectedUser.id !== me?.id ? () => setResetFor(selectedUser) : undefined}
             />
           ) : (
             <>
@@ -267,6 +304,7 @@ export function UsersPage() {
           onCreated={async (id) => { await refreshUsers(); setSelected(id); }}
         />
       ) : null}
+      {resetFor ? <ResetPasswordModal user={resetFor} onClose={() => setResetFor(null)} onDone={refreshUsers} /> : null}
     </section>
   );
 }
@@ -280,6 +318,7 @@ function AccountPanel({
   error,
   setError,
   onChanged,
+  onResetPassword,
 }: {
   user: UserRow;
   canManage: boolean;
@@ -289,6 +328,7 @@ function AccountPanel({
   error: string;
   setError: (message: string) => void;
   onChanged: () => Promise<unknown>;
+  onResetPassword?: () => void;
 }) {
   const client = useQueryClient();
   const [linkTo, setLinkTo] = useState('');
@@ -398,6 +438,14 @@ function AccountPanel({
         </form>
       ) : null}
 
+      {canManage && onResetPassword ? (
+        <div className="grid gap-2 rounded-md border border-line p-3">
+          <p className="text-sm font-semibold">Password</p>
+          <p className="text-xs text-slate-500">If they have forgotten it, set a temporary password. They will be signed out everywhere and must choose their own at the next sign-in.{user.status === 'locked' ? ' This also unlocks the account.' : ''}</p>
+          <Button variant="secondary" onClick={onResetPassword}>Reset password</Button>
+        </div>
+      ) : null}
+
       {canManage ? (
         <Button
           variant={user.status === 'active' ? 'danger' : 'secondary'}
@@ -411,6 +459,65 @@ function AccountPanel({
         </Button>
       ) : null}
     </div>
+  );
+}
+
+function ResetPasswordModal({ user, onClose, onDone }: { user: UserRow; onClose: () => void; onDone: () => Promise<unknown> }) {
+  const [password, setPassword] = useState(() => generatePassword());
+  const [show, setShow] = useState(true);
+  const [error, setError] = useState('');
+  const [done, setDone] = useState(false);
+  const valid = passwordRules.every((rule) => rule.test(password));
+  const reset = useMutation({
+    mutationFn: () => api(`/v1/users/${user.id}/reset-password`, { method: 'POST', body: JSON.stringify({ temporaryPassword: password }) }),
+    onSuccess: async () => { setDone(true); await onDone(); },
+    onError: (reason) => setError(errorMessage(reason, 'Password was not reset.')),
+  });
+
+  if (done) {
+    return (
+      <Modal title="Password reset" onClose={onClose}>
+        <div className="grid gap-4 text-sm">
+          <p>Give this temporary password to {user.employeeName ?? user.username} in person or by phone, not by email or chat. They must choose their own password when they sign in.</p>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-md bg-canvas p-4">
+            <dt className="text-slate-500">Username</dt>
+            <dd className="font-mono font-semibold">{user.username}</dd>
+            <dt className="text-slate-500">Temporary password</dt>
+            <dd className="flex items-center gap-2 font-mono font-semibold">
+              {show ? password : '•'.repeat(password.length)}
+              <button type="button" className="text-xs font-sans text-pine underline" onClick={() => setShow((value) => !value)}>{show ? 'Hide' : 'Show'}</button>
+              <button type="button" className="text-xs font-sans text-pine underline" onClick={() => void navigator.clipboard?.writeText(password)}>Copy</button>
+            </dd>
+          </dl>
+          <Button onClick={onClose}>Done</Button>
+        </div>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal title={`Reset password for ${user.username}`} onClose={onClose}>
+      <form className="grid gap-4" onSubmit={(event) => { event.preventDefault(); setError(''); if (valid) reset.mutate(); }}>
+        <p className="text-sm text-slate-600">
+          Make sure the request really comes from {user.employeeName ?? user.username}. Their current password stops working, they are signed out everywhere, and they must choose a new password at the next sign-in.
+        </p>
+        <Field label="Temporary password">
+          <div className="flex gap-2">
+            <input className={controlClass} type={show ? 'text' : 'password'} autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} />
+            <Button type="button" variant="secondary" onClick={() => setShow((value) => !value)}>{show ? 'Hide' : 'Show'}</Button>
+            <Button type="button" variant="secondary" onClick={() => { setPassword(generatePassword()); setShow(true); }}>Generate</Button>
+          </div>
+        </Field>
+        <ul className="grid grid-cols-2 gap-1 text-xs">
+          {passwordRules.map((rule) => {
+            const ok = rule.test(password);
+            return <li key={rule.label} className={ok ? 'text-pine' : 'text-slate-500'}>{ok ? '✓' : '○'} {rule.label}</li>;
+          })}
+        </ul>
+        {error ? <ErrorText>{error}</ErrorText> : null}
+        <Button type="submit" disabled={!valid || reset.isPending}>{reset.isPending ? 'Resetting…' : 'Reset password'}</Button>
+      </form>
+    </Modal>
   );
 }
 

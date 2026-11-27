@@ -1,0 +1,38 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "bajogo-api",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "-w",
+        "backend"
+      ],
+      "port": 4001
+    },
+    {
+      "name": "bajogo-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "-w",
+        "frontend"
+      ],
+      "port": 5173
+    },
+    {
+      "name": "bajogo-site",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "-w",
+        "website"
+      ],
+      "port": 5174
+    }
+  ]
+}

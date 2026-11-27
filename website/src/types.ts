@@ -136,3 +136,12 @@ export const availabilityLabels: Record<string, string> = {
   limited: 'Limited availability',
   unavailable: 'Currently unavailable',
 };
+
+/** The phone field can hold several numbers separated by "/", "," or ";". Each gets its own tel: link. */
+export function phoneNumbers(phone: string | null | undefined): Array<{ label: string; href: string }> {
+  return (phone ?? '')
+    .split(/[\/,;]/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((label) => ({ label, href: `tel:${label.replace(/\(0\)/g, '').replace(/[^\d+]/g, '')}` }));
+}

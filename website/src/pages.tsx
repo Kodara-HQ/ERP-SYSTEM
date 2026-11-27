@@ -3,7 +3,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { api } from './api';
 import { EmptyNote, EnquiryForm, GoldButton, LineButton, PageBanner, Photo, Prose, useSeo } from './Site';
 import { Band, delay, Eyebrow, FeatureGrid, Heading, Icon, RichText, SpecList, Steps, type Groups, type IconName } from './sections';
-import { availabilityLabels, categoryLabels, type ArticleCard, type Block, type GalleryCard, type HomeData, type Item, type ProductCard, type Vacancy } from './types';
+import { availabilityLabels, categoryLabels, phoneNumbers, type ArticleCard, type Block, type GalleryCard, type HomeData, type Item, type ProductCard, type Vacancy } from './types';
 
 export function HomePage() {
   const [data, setData] = useState<HomeData | null>(null);
@@ -1157,7 +1157,7 @@ function ContactBody({ page, category, product }: { page: PageData | null; categ
   const map = boot?.mapUrl && /^https:\/\/(www\.)?(google\.[a-z.]+|maps\.google\.[a-z.]+)\/maps/i.test(boot.mapUrl) ? boot.mapUrl : null;
   const topics = page?.groups?.topics ?? [];
   const details = [
-    ['phone', 'Telephone', boot?.phone, boot?.phone ? `tel:${boot.phone.replace(/\s+/g, '')}` : null],
+    ...phoneNumbers(boot?.phone).map((number, index) => ['phone', index === 0 ? 'Telephone' : 'Telephone (alternative)', number.label, number.href]),
     ['doc', 'Email', boot?.email, boot?.email ? `mailto:${boot.email}` : null],
     ['map', 'Office', place || null, null],
   ].filter((entry) => entry[2]) as Array<[IconName, string, string, string | null]>;

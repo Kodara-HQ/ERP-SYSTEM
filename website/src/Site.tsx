@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
-import type { Bootstrap, Picture, Settings } from './types';
+import { phoneNumbers, type Bootstrap, type Picture, type Settings } from './types';
 
 export function useSeo(title: string, description?: string | null, image?: string | null) {
   useEffect(() => {
@@ -152,7 +152,7 @@ const contactIcons = {
 
 function SiteFooter({ settings, commodities, place }: { settings: Settings; commodities: Bootstrap['commodities']; place: string }) {
   const contacts = [
-    ['phone', 'Call us', settings.phone, settings.phone ? `tel:${settings.phone.replace(/\s+/g, '')}` : null],
+    ...phoneNumbers(settings.phone).map((number, index) => ['phone', index === 0 ? 'Call us' : 'Or call', number.label, number.href]),
     ['email', 'Email us', settings.email, settings.email ? `mailto:${settings.email}` : null],
     ['place', 'Visit us', place || null, settings.mapUrl],
   ].filter((entry) => entry[2]) as Array<[keyof typeof contactIcons, string, string, string | null]>;
@@ -206,7 +206,7 @@ function SiteFooter({ settings, commodities, place }: { settings: Settings; comm
           {contacts.length > 0 ? (
             <ul className="mt-5 grid gap-4">
               {contacts.map(([icon, label, value, href]) => (
-                <li key={icon} className="flex items-start gap-3">
+                <li key={value} className="flex items-start gap-3">
                   <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white/5 text-gold ring-1 ring-white/10">
                     <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={contactIcons[icon]} /></svg>
                   </span>
@@ -313,7 +313,7 @@ export function SiteFrame({ boot, children }: { boot: Bootstrap; children: React
       <header className={`sticky top-0 z-40 transition-shadow duration-300 ${scrolled ? 'shadow-[0_10px_30px_rgba(0,59,32,0.12)]' : ''}`}>
         <div className={`overflow-hidden bg-deep text-cream transition-[max-height] duration-300 ${scrolled ? 'max-h-0' : 'max-h-16'}`}>
           <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-5 gap-y-1 px-4 py-2 text-xs">
-            {settings.phone ? <a href={`tel:${settings.phone.replace(/\s+/g, '')}`} className="hover:text-gold">{settings.phone}</a> : null}
+            {phoneNumbers(settings.phone).map((number) => <a key={number.href} href={number.href} className="hover:text-gold">{number.label}</a>)}
             {settings.email ? <a href={`mailto:${settings.email}`} className="hidden hover:text-gold sm:inline">{settings.email}</a> : null}
             {place ? <span className="hidden lg:inline">{place}</span> : null}
             {!settings.phone && !settings.email && !place ? <span className="text-white/80">Agricultural commodities <span className="text-gold">·</span> Gold <span className="text-gold">·</span> Haulage &amp; logistics</span> : null}

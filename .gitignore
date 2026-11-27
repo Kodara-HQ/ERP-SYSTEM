@@ -17,3 +17,10 @@ uploads/
 tmp/
 .pgdata/
 backups/
+
+# Loose media and side projects kept in the project folder, not part of the ERP
+/*.mp4
+/*_poster.jpg
+/Sunday_Service_Flyer.png
+/flyer.html
+/logo.png

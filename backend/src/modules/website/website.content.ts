@@ -38,6 +38,8 @@ export interface ProductText {
   gradeInformation: string;
   packaging: string;
   metaDescription: string;
+  /** Static website file (website/public/media), shown as a short video on the product page. */
+  video?: { url: string; poster: string };
 }
 
 export const imageAlt: Record<string, string> = {
@@ -303,6 +305,7 @@ export const products: ProductText[] = [
     name: 'Cashew Nuts',
     category: 'cashew',
     image: 'product-cashew-nuts',
+    video: { url: '/media/cashew-nuts.mp4', poster: '/media/cashew-nuts-poster.jpg' },
     summary: 'Raw cashew nuts from Ghana’s cashew belt, dried, cleaned and graded for processors and exporters.',
     description: 'Ghana produces raw cashew nuts across its middle and northern belt, with the main harvest from February to May. BAJOGO ENTERPRISE buys in-shell raw cashew nuts (RCN) from farmers and aggregators during the season, dries and cleans them, and grades each lot before storage.\n\nWe supply processors and exporters who need consistent nut size, good kernel outturn and low moisture. Each lot can be sampled and tested before contract.',
     specifications: 'Parameters buyers commonly specify for raw cashew nuts:\n• Kernel outturn (KOR): typically 46–50 lbs per 80 kg bag\n• Nut count: typically 170–210 nuts per kg\n• Moisture: 10% maximum\n• Defective nuts: agreed per contract\n• Foreign matter: 1% maximum\nFinal specification is confirmed in each contract.',

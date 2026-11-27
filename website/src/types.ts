@@ -59,6 +59,7 @@ export interface ProductCard {
   availabilityStatus: string;
   image: Picture | null;
   images?: Array<Picture & { isPrimary?: boolean }>;
+  video?: { url: string; poster: string | null } | null;
   metaTitle?: string | null;
   metaDescription?: string | null;
   related?: ProductCard[];

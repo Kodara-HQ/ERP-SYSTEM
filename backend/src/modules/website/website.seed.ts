@@ -196,6 +196,14 @@ async function ensureProduct(input: ProductText, sortOrder: number, imageId: num
       [...values, sortOrder, product.id],
     );
   }
+  if (input.video) {
+    // Fills the video only when none is set. A changed video is kept; to hide the seeded one, set video_url to ''.
+    await execute(
+      pool,
+      'UPDATE website_products SET video_url = ?, video_poster_url = ? WHERE id = ? AND video_url IS NULL',
+      [input.video.url, input.video.poster, product.id],
+    );
+  }
   const image = await queryOne<RowDataPacket>(pool, 'SELECT id FROM website_product_images WHERE product_id = ? AND media_id = ?', [product.id, imageId]);
   if (!image) {
     await execute(pool, 'INSERT INTO website_product_images (product_id, media_id, sort_order, is_primary) VALUES (?, ?, 0, 1)', [product.id, imageId]);

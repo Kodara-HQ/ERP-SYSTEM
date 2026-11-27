@@ -239,6 +239,7 @@ function mapProduct(row: RowDataPacket, images: ReturnType<typeof imageRef>[] = 
     metaDescription: text(row.meta_description),
     image: imageRef(row.image_id, row.alt_text, admin, row.media_sha),
     images: images.filter((image) => image != null),
+    video: text(row.video_url) ? { url: String(row.video_url), poster: text(row.video_poster_url) } : null,
   };
 }
 

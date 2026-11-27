@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { api } from './api';
 import { EmptyNote, EnquiryForm, GoldButton, LineButton, PageBanner, Photo, Prose, useSeo } from './Site';
@@ -483,6 +483,67 @@ export function CommoditiesPage() {
   );
 }
 
+const journey = [
+  { title: 'Sourcing', text: 'Bought from farmers and aggregators and sun-dried on clean tarpaulins.' },
+  { title: 'Storage', text: 'Bagged and kept in our warehouse, ready for buyers.' },
+  { title: 'Haulage', text: 'Loaded, covered and dispatched to the buyer.' },
+];
+
+/**
+ * Short silent product film. It plays only while on screen, never for visitors who ask for reduced motion,
+ * and always has controls so it can be paused.
+ */
+function ProductVideo({ video, name }: { video: { url: string; poster: string | null }; name: string }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element || window.matchMedia('(prefers-reduced-motion: reduce)').matches || !('IntersectionObserver' in window)) return undefined;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) void element.play().catch(() => undefined);
+      else element.pause();
+    }, { threshold: 0.4 });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [video.url]);
+
+  return (
+    <section className="reveal overflow-hidden rounded-3xl bg-deep text-white shadow-card">
+      <div className="grid items-center gap-0 md:grid-cols-[0.85fr_1.15fr]">
+        <div className="bg-black/30 p-4 md:p-5">
+          <video
+            ref={ref}
+            className="mx-auto aspect-[9/16] max-h-[560px] w-full rounded-2xl bg-black object-cover"
+            src={video.url}
+            poster={video.poster ?? undefined}
+            muted
+            loop
+            playsInline
+            controls
+            preload="metadata"
+            aria-label={`${name}: from the farm to delivery`}
+          />
+        </div>
+        <div className="p-6 md:p-8">
+          <Eyebrow light>On the ground</Eyebrow>
+          <h2 className="mt-2 font-display text-3xl">From the farm to delivery</h2>
+          <p className="mt-3 text-sm leading-7 text-white/75">How our {name.toLowerCase()} move from collection points in the cashew belt to our buyers.</p>
+          <ol className="mt-6 grid gap-4">
+            {journey.map((step, index) => (
+              <li key={step.title} className="flex gap-4">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-gold font-bold text-deep">{index + 1}</span>
+                <div>
+                  <h3 className="font-semibold text-gold">{step.title}</h3>
+                  <p className="mt-0.5 text-sm leading-6 text-white/80">{step.text}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function ProductPage() {
   const { slug = '' } = useParams();
   const [product, setProduct] = useState<ProductCard | null>(null);
@@ -511,6 +572,8 @@ export function ProductPage() {
               </div>
             ))}
           </div>
+
+          {product.video ? <ProductVideo video={product.video} name={product.name} /> : null}
 
           <section className="reveal">
             <Eyebrow>Overview</Eyebrow>

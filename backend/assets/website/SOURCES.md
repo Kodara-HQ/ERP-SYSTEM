@@ -32,3 +32,7 @@ The website seed loads `<asset_key>.jpg|jpeg|png|webp` from this folder and repl
 | (shea) product-shea-nuts.jpg | reused from the product page | Public domain |
 | gallery-shea-1.jpg | https://commons.wikimedia.org/wiki/File:Shea_Nuts_Drying_Under_the_Sun.jpg, by Suglo20 | CC BY-SA 4.0 (credit shown in the caption) |
 | gallery-shea-2.jpg | https://commons.wikimedia.org/wiki/File:Shea_nuts_cuptured_in_upper_west_Region_of_Ghana.jpg, by Abdul-Rauf Moshie | CC BY-SA 4.0 (credit shown in the caption) |
+
+## BAJOGO ENTERPRISE photographs
+
+`cashew-*.jpg`: photographs taken by BAJOGO ENTERPRISE at its own operations (quality control, drying, storage and loading of raw cashew nuts). Company property; no outside licence applies.

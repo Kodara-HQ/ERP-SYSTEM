@@ -544,6 +544,52 @@ function ProductVideo({ video, name }: { video: { url: string; poster: string | 
   );
 }
 
+/** The gallery photographs for this commodity, opened in the same viewer as the Gallery page. */
+function ProductPhotos({ category, name }: { category: string; name: string }) {
+  const [items, setItems] = useState<GalleryCard[]>([]);
+  const [openIndex, setOpenIndex] = useState<number | null>(null);
+  useEffect(() => {
+    setItems([]);
+    api<{ data: GalleryCard[] }>(`/v1/public/website/gallery?category=${encodeURIComponent(category)}`)
+      .then((payload) => setItems(payload.data.filter((item) => item.image)))
+      .catch(() => setItems([]));
+  }, [category]);
+  if (items.length < 3) return null;
+  return (
+    <Band tone="mist">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <Heading eyebrow="In pictures" title={`Our ${name.toLowerCase()} operation`} text="Quality checks, drying, storage and loading, photographed at our operations." />
+        <LineButton to={`/gallery?category=${encodeURIComponent(category)}`}>Open the gallery</LineButton>
+      </div>
+      <div className="mt-8 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
+        {items.map((item, index) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => setOpenIndex(index)}
+            className={`reveal group relative overflow-hidden rounded-2xl text-left shadow-card focus-visible:outline-offset-4 ${index === 0 ? 'col-span-2 row-span-2' : ''}`}
+            style={delay(index % 4, 70)}
+            aria-label={`Open photograph: ${item.caption || item.image?.alt || ''}`}
+          >
+            <Photo image={item.image} className={`w-full transition duration-700 group-hover:scale-105 ${index === 0 ? 'h-[22rem] md:h-[30rem]' : 'h-44 md:h-56'}`} />
+            <span className="absolute inset-0 bg-gradient-to-t from-deep/80 via-transparent to-transparent opacity-70 transition duration-300 group-hover:opacity-100" />
+            {item.caption?.startsWith('Quality control') ? (
+              <span className="absolute left-3 top-3 rounded-full bg-gold px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-deep">Quality control</span>
+            ) : null}
+            <Caption
+              text={(item.caption || item.image?.alt || '').replace(/^Quality control:\s*(.)/, (_match, first: string) => first.toUpperCase())}
+              className={`absolute inset-x-0 bottom-0 p-3 font-semibold leading-snug text-white ${index === 0 ? 'text-lg md:p-5 md:text-xl' : 'text-xs md:text-sm'}`}
+            />
+          </button>
+        ))}
+      </div>
+      {openIndex != null && items[openIndex] ? (
+        <Lightbox items={items} index={openIndex} onChange={setOpenIndex} onClose={() => setOpenIndex(null)} />
+      ) : null}
+    </Band>
+  );
+}
+
 export function ProductPage() {
   const { slug = '' } = useParams();
   const [product, setProduct] = useState<ProductCard | null>(null);
@@ -607,6 +653,8 @@ export function ProductPage() {
           <EnquiryForm category="agricultural" product={product.name} heading={`Enquire about ${product.name}`} />
         </div>
       </div>
+
+      <ProductPhotos category={product.category} name={product.name} />
 
       {others.length > 0 ? (
         <Band tone="white">

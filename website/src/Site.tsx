@@ -311,18 +311,6 @@ export function SiteFrame({ boot, children }: { boot: Bootstrap; children: React
     <div className="min-h-screen bg-cream text-ink">
       <a href="#content" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:bg-gold focus:px-3 focus:py-2">Skip to content</a>
       <header className={`sticky top-0 z-40 transition-shadow duration-300 ${scrolled ? 'shadow-[0_10px_30px_rgba(0,59,32,0.12)]' : ''}`}>
-        <div className={`overflow-hidden bg-deep text-cream transition-[max-height] duration-300 ${scrolled ? 'max-h-0' : 'max-h-16'}`}>
-          <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-5 gap-y-1 px-4 py-2 text-xs">
-            {phoneNumbers(settings.phone).map((number) => <a key={number.href} href={number.href} className="hover:text-gold">{number.label}</a>)}
-            {settings.email ? <a href={`mailto:${settings.email}`} className="hidden hover:text-gold sm:inline">{settings.email}</a> : null}
-            {place ? <span className="hidden lg:inline">{place}</span> : null}
-            {!settings.phone && !settings.email && !place ? <span className="text-white/80">Agricultural commodities <span className="text-gold">·</span> Gold <span className="text-gold">·</span> Haulage &amp; logistics</span> : null}
-            <span className="ml-auto flex items-center gap-4">
-              <Social settings={settings} />
-              <a href={settings.staffLoginUrl} className="font-semibold text-white/80 hover:text-gold">Staff Login</a>
-            </span>
-          </div>
-        </div>
         <div className="border-b border-forest/10 bg-white/95 backdrop-blur">
           <div className={`mx-auto flex max-w-7xl items-center gap-4 px-4 transition-[padding] duration-300 ${scrolled ? 'py-2' : 'py-3'}`}>
             <Link to="/" className="group flex items-center gap-3">
